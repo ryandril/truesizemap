@@ -209,10 +209,7 @@ async function liftPlace(place: Place, anchor?: LonLat, animateLift = true): Pro
 
 /** If a lifted shape is a speck at the current zoom (small cities at world view), zoom in on it. */
 function zoomToSee(g: Ghost) {
-  const b = g.place.bounds
-  if (b.wraps) return
-  const a = projection([b.minLon, b.minLat]), c = projection([b.maxLon, b.maxLat]); if (!a || !c) return
-  const size = Math.max(Math.abs(c[0] - a[0]), Math.abs(c[1] - a[1]))
+  const size = bodySizePx(g.place) * transform.k
   if (size >= 28) return
   const visH = height - insetTop - insetBottom
   const want = Math.min(width, visH) * 0.22
@@ -252,6 +249,35 @@ function animateZoom(target: ZoomTransform, ms = 650): Promise<void> {
   zoomAnim = requestAnimationFrame(step)
   })
 }
+/** Screen position of a point, using the copy of the world nearest the viewport (Mercator wraps). */
+function screenPos(ll: LonLat): [number, number] | null {
+  const p = projection(ll); if (!p) return null
+  let x = p[0]; const w = worldWidth()
+  if (projName === 'mercator') { while (x < 0 && x + w < width) x += w; while (x > width && x - w > 0) x -= w }
+  return [x, p[1]]
+}
+const onScreenPt = (xy: [number, number] | null, m = 0) => !!xy && xy[0] > m && xy[0] < width - m && xy[1] > insetTop + m && xy[1] < height - insetBottom - m
+/** A view that frames two places together (both fully in the visible band). */
+function viewForPair(a: Place, b: Place): ZoomTransform {
+  const visH = height - insetTop - insetBottom
+  const s0 = projection.scale(), t0 = projection.translate()
+  projection.scale(baseScale).translate(baseTranslate)
+  const pts: [number, number][] = []
+  for (const pl of [a, b]) {
+    const bb = pl.bounds
+    if (bb.wraps || bb.maxLon - bb.minLon > 200) { const c = projection(pl.label); if (c) pts.push(c) } // Russia/USA span the date line: use the centre
+    else for (const q of [[bb.minLon, bb.minLat], [bb.maxLon, bb.maxLat], [bb.minLon, bb.maxLat], [bb.maxLon, bb.minLat]] as LonLat[]) { const c = projection(q); if (c) pts.push(c) }
+  }
+  projection.scale(s0).translate(t0)
+  if (pts.length < 2) return zoomIdentity
+  // bring x's onto the same copy of the world (nearest to the first point)
+  const w = 2 * Math.PI * baseScale
+  if (projName === 'mercator') for (const q of pts) { while (q[0] - pts[0][0] > w / 2) q[0] -= w; while (pts[0][0] - q[0] > w / 2) q[0] += w }
+  const x0 = Math.min(...pts.map(q => q[0])), x1 = Math.max(...pts.map(q => q[0])), y0 = Math.min(...pts.map(q => q[1])), y1 = Math.max(...pts.map(q => q[1]))
+  const k = Math.max(1, Math.min(MAX_ZOOM, 0.78 * Math.min(width / Math.max(x1 - x0, 1), visH / Math.max(y1 - y0, 1))))
+  const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2
+  return zoomIdentity.translate(width / 2 - k * cx, insetTop + visH / 2 - k * cy).scale(k)
+}
 /** A view that frames `place` at about `frac` of the visible band. */
 function viewFor(place: Place, frac = 0.3): ZoomTransform {
   const b = place.bounds
@@ -260,10 +286,17 @@ function viewFor(place: Place, frac = 0.3): ZoomTransform {
   projection.scale(baseScale).translate(baseTranslate)
   const a = projection([b.minLon, b.minLat]), c = projection([b.maxLon, b.maxLat])
   projection.scale(s0).translate(t0)
-  if (!a || !c || b.wraps) return zoomIdentity
-  const size = Math.max(Math.abs(c[0] - a[0]), Math.abs(c[1] - a[1]), 1)
+  if (!a || !c) return zoomIdentity
+  const size = Math.min(b.wraps ? Infinity : Math.max(Math.abs(c[0] - a[0]), Math.abs(c[1] - a[1]), 1), bodySizePx(place))
   const k = Math.max(1, Math.min(MAX_ZOOM, (Math.min(width, visH) * frac) / size))
-  return viewTransform(k, place.centroid)
+  return viewTransform(k, place.label)
+}
+/** Approximate on-screen size (base px, k = 1) of a place's main body, from its area rather than its bounding box. */
+function bodySizePx(place: Place): number {
+  const sideKm = Math.sqrt(place.areaKm2) * 1.6
+  const lat = place.label[1] * Math.PI / 180
+  const pxPerKm = (2 * Math.PI * baseScale) / (40075 * (projName === 'mercator' ? Math.cos(lat) : 1))
+  return sideKm * pxPerKm
 }
 function addGhost(place: Place, anchor?: LonLat, animateLift = true): Ghost {
   const existing = ghosts.find(g => g.place.id === place.id)
@@ -271,7 +304,7 @@ function addGhost(place: Place, anchor?: LonLat, animateLift = true): Ghost {
   if (ghosts.length >= MAX_GHOSTS) { ghosts.shift(); toast('Three at a time — oldest removed') }
   const used = new Set(ghosts.map(g => g.color))
   const color = COLORS.find(c => !used.has(c)) ?? COLORS[0]
-  const a = anchor ?? place.centroid
+  const a = anchor ?? place.label
   const g: Ghost = {
     key: ++ghostSeq, place, anchor: a, color, feature: place.feature!,
     sx: new Spring(a[0], 1, 0.4), sy: new Spring(a[1], 1, 0.4),
@@ -289,8 +322,8 @@ function setAnchor(g: Ghost, a: LonLat) {
   const T0 = performance.now()
   const cap = maxLat() + 3 // rubber-band headroom
   g.anchor = [((a[0] + 540) % 360) - 180, Math.max(-cap, Math.min(cap, a[1]))]
-  const same = Math.abs(g.anchor[0] - g.place.centroid[0]) < 1e-6 && Math.abs(g.anchor[1] - g.place.centroid[1]) < 1e-6
-  g.feature = same ? g.place.feature! : { type: 'Feature', properties: {}, geometry: moveGeometry(g.place.feature!.geometry, g.place.centroid, g.anchor) }
+  const same = Math.abs(g.anchor[0] - g.place.label[0]) < 1e-6 && Math.abs(g.anchor[1] - g.place.label[1]) < 1e-6
+  g.feature = same ? g.place.feature! : { type: 'Feature', properties: {}, geometry: moveGeometry(g.place.feature!.geometry, g.place.label, g.anchor) }
   mark('move', T0)
 }
 function removeGhost(g: Ghost) {
@@ -742,7 +775,8 @@ canvas.addEventListener('click', (e) => {
   if (currentLevel() === 'city') {
     const inside = placeAtPoint(geo, 'city') ?? cityAtPixel([e.offsetX, e.offsetY])
     if (inside) { void liftPlace(inside); return }
-    if (transform.k < CITY_NAMES_FROM) toast('Zoom in to see cities, or search one'); else hideCompare()
+    const country = placeAtPoint(geo, 'country') // no city here: fall back to the country under the finger
+    if (country) { addGhost(country); hintEl.classList.add('off') } else hideCompare()
     return
   }
   const city = cityAtPixel([e.offsetX, e.offsetY], 10)
@@ -873,23 +907,26 @@ presetsEl.addEventListener('click', async (e) => {
     if (level === 'city') await withTimeout(Promise.all([loadCity(src), loadCity(dst)]), 6000)
     if (!live()) return
     setLevel(level)
-    const target = level === 'city' ? viewFor(dst, 0.3) : zoomIdentity
+    // camera: cities frame the destination; countries/continents frame the pair — and only if they are not already both in view
+    const bothVisible = onScreenPt(screenPos(src.label), 20) && onScreenPt(screenPos(dst.label), 20)
+    const target = level === 'city'
+      ? (bothVisible && transform.k >= CITY_BORDERS_FROM ? transform : viewFor(dst, 0.3))
+      : (bothVisible ? transform : viewForPair(src, dst))
     const needMove = Math.abs(target.k - transform.k) > 0.01 || Math.abs(target.x - transform.x) > 1 || Math.abs(target.y - transform.y) > 1
-    const home = projection(src.centroid)
-    const srcOnScreen = !!home && home[0] > 0 && home[0] < width && home[1] > insetTop && home[1] < height - insetBottom
+    const srcOnScreen = onScreenPt(screenPos(src.label))
     let g: Ghost
     if (srcOnScreen) {
       // lift where it lives, then travel and move the camera together so shape and view arrive at once
-      g = addGhost(src, src.centroid)
+      g = addGhost(src, src.label)
       await new Promise(r => setTimeout(r, reducedMotion() ? 0 : 220))
       if (!live()) return
-      await withTimeout(Promise.all([needMove ? animateZoom(target, 900) : Promise.resolve(), glideTo(g, dst.centroid)]), 4000)
+      await withTimeout(Promise.all([needMove ? animateZoom(target, 900) : Promise.resolve(), glideTo(g, dst.label)]), 4000)
     } else {
       // the shape lives off screen: bring the camera to the destination and drop the shape onto it as it arrives
       const cam = needMove ? animateZoom(target, 800) : Promise.resolve()
       await new Promise(r => setTimeout(r, reducedMotion() ? 0 : 350))
       if (!live()) return
-      g = addGhost(src, dst.centroid)
+      g = addGhost(src, dst.label)
       await withTimeout(cam, 3000)
     }
     if (live() && ghosts.includes(g)) showCompare(g)
@@ -1012,5 +1049,5 @@ async function boot() {
   requestDraw()
 }
 // debug hook, dev only
-if (import.meta.env.DEV) (window as unknown as { __tsm: unknown }).__tsm = { project: (ll: LonLat) => projection(ll), get pal() { return pal }, get ghosts() { return ghosts }, stats, get transform() { return transform }, get baseT() { return baseT }, get baseKey() { return baseKey }, baseKeyNow, get baseTimer() { return baseTimer }, renderBase, draw, get base() { return base }, get visibleCities() { return visibleCities.map(v => ({ n: v.c.name, loaded: !!v.c.feature })) }, get citiesLoaded() { return citiesLoaded }, setProjection, get morph() { return morphDebug }, get morphing() { return morphing }, get lastZoom() { return lastZoom }, setView: (k: number, lon: number, lat: number) => { const b = projection; applyTransform(); const base = (() => { const t = transform; const p = b([lon, lat])!; return [(p[0] - t.x) / t.k, (p[1] - t.y) / t.k] })(); const visH = height - insetTop - insetBottom; select(canvas).call(zoomBehavior.transform, zoomIdentity.translate(width / 2 - k * base[0], insetTop + visH / 2 - k * base[1]).scale(k)) } }
+if (import.meta.env.DEV) (window as unknown as { __tsm: unknown }).__tsm = { project: (ll: LonLat) => projection(ll), get pal() { return pal }, get ghosts() { return ghosts }, stats, get transform() { return transform }, get baseT() { return baseT }, get baseKey() { return baseKey }, baseKeyNow, get baseTimer() { return baseTimer }, renderBase, draw, get base() { return base }, get visibleCities() { return visibleCities.map(v => ({ n: v.c.name, loaded: !!v.c.feature })) }, get citiesLoaded() { return citiesLoaded }, setProjection, get morph() { return morphDebug }, viewForPair: (a: string, b: string) => { const t = viewForPair(world.byId.get(a)!, world.byId.get(b)!); select(canvas).call(zoomBehavior.transform, t); return [t.k, t.x, t.y] }, screenPos, get world() { return world }, get morphing() { return morphing }, get lastZoom() { return lastZoom }, setView: (k: number, lon: number, lat: number) => { const b = projection; applyTransform(); const base = (() => { const t = transform; const p = b([lon, lat])!; return [(p[0] - t.x) / t.k, (p[1] - t.y) / t.k] })(); const visH = height - insetTop - insetBottom; select(canvas).call(zoomBehavior.transform, zoomIdentity.translate(width / 2 - k * base[0], insetTop + visH / 2 - k * base[1]).scale(k)) } }
 boot().catch(err => { hintEl.textContent = 'Could not load map data'; console.error(err) })
