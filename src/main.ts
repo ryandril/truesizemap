@@ -100,6 +100,14 @@ function projectionFor(projName: ProjName): GeoProjection {
   const pad = 8
   const visH = height - insetTop - insetBottom
   p.fitExtent([[pad, insetTop + pad], [width - pad, height - insetBottom - pad]], sphere)
+  if (projName === 'equalearth') {
+    // full-screen like Mercator: fill the width (landscape) or the height (portrait); the world wraps sideways
+    const W1 = 2 * geoEqualEarthRaw(Math.PI, 0)[0], H1 = 2 * Math.abs(geoEqualEarthRaw(0, Math.PI / 2)[1])
+    p.scale(width > visH ? (width - 2 * pad) / W1 : (visH - 2 * pad) / H1)
+    p.translate([0, 0])
+    const c = p([10, 12])!
+    p.translate([width / 2 - c[0], insetTop + visH / 2 - c[1]])
+  }
   if (projName === 'mercator') {
     if (width > visH) {
       // landscape: fill the width, let the poles run off (they are ice anyway); centre ~12°N in the visible band
@@ -172,14 +180,16 @@ function ghostAtPoint(p: LonLat): Ghost | null {
   return null
 }
 function invert(xy: [number, number]): LonLat | null {
-  if (!projection || !world || morphing) return null
-  const r = projection.invert?.(xy)
-  if (!r || !isFinite(r[0]) || !isFinite(r[1])) return null
-  if (projName === 'equalearth') { // reject points outside the projected sphere
-    const back = projection([r[0], r[1]])
-    if (!back || Math.hypot(back[0] - xy[0], back[1] - xy[1]) > 1) return null
+  if (!projection || !world || morphing || !projection.invert) return null
+  for (const dx of worldCopies()) {
+    const q: [number, number] = [xy[0] - dx, xy[1]]
+    const r = projection.invert(q)
+    if (!r || !isFinite(r[0]) || !isFinite(r[1])) continue
+    const back = projection([r[0], r[1]]) // reject points outside this copy's outline
+    if (!back || Math.hypot(back[0] - q[0], back[1] - q[1]) > 1) continue
+    return [((r[0] + 540) % 360) - 180, r[1]]
   }
-  return [((r[0] + 540) % 360) - 180, r[1]]
+  return null
 }
 
 /** city dots drawn in the last base render, in screen px */
@@ -286,11 +296,12 @@ function under(g: Ghost): Place | null {
   const cur = currentLevel()
   if (transform.k >= CITY_BORDERS_FROM && g.place.level !== 'continent') { // zoomed into city borders: compare with the city underneath
     const c = placeAtPoint(g.anchor, 'city')
-    if (c && c.id !== g.place.id) return c
+    if (c && c.id !== g.place.id && c.name.toLowerCase() !== g.place.name.toLowerCase()) return c
   }
   const lvl: Level = g.place.level === 'continent' ? 'continent' : cur === 'continent' ? 'continent' : 'country'
   const p = placeAtPoint(g.anchor, lvl)
-  return p && p.id === g.place.id ? null : p
+  if (!p || p.id === g.place.id || p.name.toLowerCase() === g.place.name.toLowerCase()) return null // Singapore-the-city on Singapore-the-country
+  return p
 }
 
 /** Glide a ghost to a target (presets). Critically damped, slow response; interruptible by grabbing it. */
@@ -328,9 +339,9 @@ function requestDraw() { if (!frame) frame = requestAnimationFrame(draw) }
 const stats: Record<string, number> = {}
 const mark = (k: string, t0: number) => { stats[k] = (stats[k] ?? 0) * 0.5 + (performance.now() - t0) * 0.5 }
 /** Mercator wraps: the x-offsets (in px) of every copy of the world that touches the viewport. */
+function worldWidth(): number { const a = projection([-180, 0]), b = projection([180, 0]); return a && b ? b[0] - a[0] : 2 * Math.PI * projection.scale() }
 function worldCopies(): number[] {
-  if (projName !== 'mercator') return [0]
-  const w = 2 * Math.PI * projection.scale()
+  const w = worldWidth()
   const tx = projection.translate()[0]
   const out: number[] = []
   for (let n = -2; n <= 2; n++) { const l = tx + n * w - w / 2, r = tx + n * w + w / 2; if (r > 0 && l < width) out.push(n * w) }
@@ -538,8 +549,8 @@ function drawLabels() {
     const xy = projection(g.anchor)
     if (!xy) continue
     let [x, y] = xy
-    if (projName === 'mercator') { // pick the copy of the world that is on screen
-      const w = 2 * Math.PI * projection.scale()
+    { // pick the copy of the world that is on screen
+      const w = worldWidth()
       while (x < 0 && x + w < width + 40) x += w
       while (x > width && x - w > -40) x -= w
     }
@@ -573,9 +584,17 @@ function fillCompare(g: Ghost) {
       ? `<strong>${esc(g.place.name)}</strong> would cover <strong>${r.pct}</strong> of ${esc(u.name)}. ${esc(u.name)} is <strong>${inv.times}</strong> bigger.`
       : `<strong>${esc(g.place.name)}</strong> is <strong>${r.times}</strong> the size of ${esc(u.name)}. ${esc(u.name)} would cover <strong>${inv.pct}</strong> of it.`
   } else {
-    $('#cmp-b-name').textContent = 'Open water'; $('#cmp-b-def').textContent = 'drag over a place to compare'; $('#cmp-b-area').textContent = ''
-    $('#cmp-ratio').textContent = '·'
-    $('#cmp-sentence').innerHTML = `<strong>${esc(g.place.name)}</strong> keeps its true area wherever you put it. On Mercator it only <em>looks</em> different.`
+    const lvl: Level = g.place.level === 'continent' ? 'continent' : currentLevel() === 'continent' ? 'continent' : 'country'
+    const home = placeAtPoint(g.anchor, lvl) ?? (transform.k >= CITY_BORDERS_FROM ? placeAtPoint(g.anchor, 'city') : null)
+    if (home) { // sitting on itself (or its namesake, e.g. Singapore the city on Singapore the country)
+      $('#cmp-b-name').textContent = 'Home'; $('#cmp-b-def').textContent = 'its own footprint'; $('#cmp-b-area').textContent = ''
+      $('#cmp-ratio').textContent = '1×'
+      $('#cmp-sentence').innerHTML = `<strong>${esc(g.place.name)}</strong> is where it belongs. Drag it onto another place to compare.`
+    } else {
+      $('#cmp-b-name').textContent = 'Open water'; $('#cmp-b-def').textContent = 'drag over a place to compare'; $('#cmp-b-area').textContent = ''
+      $('#cmp-ratio').textContent = '·'
+      $('#cmp-sentence').innerHTML = `<strong>${esc(g.place.name)}</strong> keeps its true area wherever you put it. On Mercator it only <em>looks</em> different.`
+    }
   }
 }
 $('#compare-close').addEventListener('click', hideCompare)
@@ -726,14 +745,24 @@ function setProjection(p: ProjName, animate = true) {
   const from = projName
   projName = p
   document.querySelectorAll<HTMLButtonElement>('[data-proj]').forEach(x => { const on = x.dataset.proj === p; x.classList.toggle('on', on); x.setAttribute('aria-checked', String(on)) })
-  transform = zoomIdentity; select(canvas).call(zoomBehavior.transform, zoomIdentity)
   if (!animate || reducedMotion() || !world) {
+    transform = zoomIdentity; select(canvas).call(zoomBehavior.transform, zoomIdentity)
     projection = makeProjection()
     for (const g of ghosts) setAnchor(g, g.anchor)
     requestDraw(); pushHash(); return
   }
   morphProjection(from, p)
   pushHash()
+}
+
+/** The transform that puts `center` in the middle of the visible band at zoom k, for the current base projection. */
+function viewTransform(k: number, center: LonLat): ZoomTransform {
+  const visH = height - insetTop - insetBottom
+  const savedT = projection.translate(), savedS = projection.scale()
+  projection.scale(baseScale).translate(baseTranslate) // base coords (k = 1)
+  const b = projection(center) ?? [baseTranslate[0], baseTranslate[1]]
+  projection.scale(savedS).translate(savedT)
+  return zoomIdentity.translate(width / 2 - k * b[0], insetTop + visH / 2 - k * b[1]).scale(k)
 }
 
 /** Blend the two projections' raw formulas over ~1s so the map visibly stretches/relaxes into the new shape. */
@@ -746,17 +775,26 @@ function morphProjection(from: ProjName, to: ProjName) {
   const ra = rawOf(from), rb = rawOf(to)
   const T0 = performance.now(), ms = 1100
   const maxLatEnd = to === 'mercator' ? 82 : 89
+  // keep what the user is looking at: same zoom, same centre, through the whole blend
+  const k = transform.k
+  const visH = height - insetTop - insetBottom
+  const center: LonLat = invert([width / 2, insetTop + visH / 2]) ?? [10, 12]
   morphing = true
   const frame = (u: number) => {
     const raw = (λ: number, φ: number) => { const a = ra(λ, φ), b = rb(λ, φ); return [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u] as [number, number] }
     const pr = geoProjection(raw).scale(s0 + (s1 - s0) * u).translate([t0[0] + (t1[0] - t0[0]) * u, t0[1] + (t1[1] - t0[1]) * u]).precision(0.5)
     projection = pr
     baseScale = pr.scale(); baseTranslate = pr.translate() as [number, number]
+    transform = viewTransform(k, center)
     for (const g of ghosts) { g.anchor[1] = Math.max(-maxLatEnd, Math.min(maxLatEnd, g.anchor[1])); setAnchor(g, g.anchor) }
     baseKey = '' // force a (lite) base render this frame
     draw()
   }
-  const finish = () => { morphing = false; projection = makeProjection(); baseKey = ''; requestDraw() }
+  const finish = () => {
+    morphing = false; projection = makeProjection(); baseKey = ''
+    select(canvas).call(zoomBehavior.transform, viewTransform(k, center)) // hand the final view back to d3-zoom
+    requestDraw()
+  }
   morphDebug = { frame, finish }
   const step = (now: number) => {
     const u = easeCubicInOut(Math.min(1, (now - T0) / ms))
