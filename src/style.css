@@ -173,6 +173,8 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .results .none { color: var(--ink-faint); cursor: default; }
 .presets { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none; }
 .presets::-webkit-scrollbar { display: none; }
+.preset-chips { display: contents; }
+.chip.busy { opacity: .55; pointer-events: none; }
 .lbl { font-family: var(--mono); font-size: 11px; letter-spacing: 0.02em; color: var(--ink-faint); flex-shrink: 0; }
 .chip { font-family: var(--mono); font-size: 11px; letter-spacing: 0.01em; padding: 6px 11px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink-dim); white-space: nowrap; flex-shrink: 0; }
 .chip:hover { color: var(--ink); border-color: var(--gold-deep); }

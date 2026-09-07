@@ -151,6 +151,7 @@ function currentLevel(): Level {
 function setLevel(l: Level) { levelOverride = l; overrideBand = bandFor(transform.k); syncLevelUI(); requestDraw() }
 function syncLevelUI() {
   const l = currentLevel()
+  if (world) renderPresets()
   document.querySelectorAll<HTMLButtonElement>('[data-level]').forEach(b => {
     const on = b.dataset.level === l
     b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on))
@@ -229,9 +230,12 @@ let lastZoom: unknown = null
 
 /** Animate the view to a transform along d3's zoom-out-then-in path. rAF-driven so it works without d3-transition. */
 let zoomAnim = 0
-function animateZoom(target: ZoomTransform, ms = 650) {
-  cancelAnimationFrame(zoomAnim)
-  if (reducedMotion() || ms === 0) { select(canvas).call(zoomBehavior.transform, target); return }
+let zoomDone: (() => void) | null = null
+function animateZoom(target: ZoomTransform, ms = 650): Promise<void> {
+  cancelAnimationFrame(zoomAnim); zoomDone?.(); zoomDone = null
+  if (reducedMotion() || ms === 0) { select(canvas).call(zoomBehavior.transform, target); return Promise.resolve() }
+  return new Promise<void>(resolve => {
+  zoomDone = resolve
   const visH = height - insetTop - insetBottom
   const cx = width / 2, cy = insetTop + visH / 2
   const a = transform, b = target
@@ -243,9 +247,23 @@ function animateZoom(target: ZoomTransform, ms = 650) {
     const u = easeCubicInOut(Math.min(1, (now - t0) / dur))
     const v = i(u); const k = Math.min(width, visH) / v[2]
     select(canvas).call(zoomBehavior.transform, zoomIdentity.translate(cx - v[0] * k, cy - v[1] * k).scale(k))
-    if (u < 1) zoomAnim = requestAnimationFrame(step)
+    if (u < 1) zoomAnim = requestAnimationFrame(step); else { zoomDone = null; resolve() }
   }
   zoomAnim = requestAnimationFrame(step)
+  })
+}
+/** A view that frames `place` at about `frac` of the visible band. */
+function viewFor(place: Place, frac = 0.3): ZoomTransform {
+  const b = place.bounds
+  const visH = height - insetTop - insetBottom
+  const s0 = projection.scale(), t0 = projection.translate()
+  projection.scale(baseScale).translate(baseTranslate)
+  const a = projection([b.minLon, b.minLat]), c = projection([b.maxLon, b.maxLat])
+  projection.scale(s0).translate(t0)
+  if (!a || !c || b.wraps) return zoomIdentity
+  const size = Math.max(Math.abs(c[0] - a[0]), Math.abs(c[1] - a[1]), 1)
+  const k = Math.max(1, Math.min(MAX_ZOOM, (Math.min(width, visH) * frac) / size))
+  return viewTransform(k, place.centroid)
 }
 function addGhost(place: Place, anchor?: LonLat, animateLift = true): Ghost {
   const existing = ghosts.find(g => g.place.id === place.id)
@@ -622,7 +640,7 @@ function setupZoom() {
       const geo = invert([src.clientX - r.left, src.clientY - r.top])
       return !(geo && ghostAtPoint(geo)) // a press that starts on a ghost is a drag, not a pan
     })
-    .on('start', (ev) => { if (ev.sourceEvent) cancelAnimationFrame(zoomAnim) })
+    .on('start', (ev) => { if (ev.sourceEvent) { cancelAnimationFrame(zoomAnim); zoomDone?.(); zoomDone = null } })
     .on('zoom', (ev) => { transform = ev.transform; requestDraw() })
   select(canvas).call(zoomBehavior).on('dblclick.zoom', null)
 }
@@ -801,21 +819,64 @@ document.querySelectorAll<HTMLButtonElement>('[data-level]').forEach(b => b.addE
 $('#reset').addEventListener('click', () => { clearGhosts(); animateZoom(zoomIdentity, 500) })
 $('#clear').addEventListener('click', clearGhosts)
 
-const PRESETS: Record<string, { src: string; dst: string; level: Level }> = {
-  'grl-af': { src: 'GRL', dst: 'AF', level: 'continent' },
-  'eu-af': { src: 'EU', dst: 'AF', level: 'continent' },
-  'ak-mx': { src: 'US-AK', dst: 'MEX', level: 'country' },
+// presets per level; each one moves the camera first, then lifts and glides
+interface Preset { src: string; dst: string; label: string }
+const PRESETS: Record<Level, Preset[]> = {
+  continent: [
+    { src: 'GRL', dst: 'AF', label: 'Greenland → Africa' },
+    { src: 'EU', dst: 'AF', label: 'Europe → Africa' },
+    { src: 'AN', dst: 'AF', label: 'Antarctica → Africa' },
+    { src: 'OC', dst: 'EU', label: 'Oceania → Europe' },
+  ],
+  country: [
+    { src: 'US-AK', dst: 'MEX', label: 'Alaska → Mexico' },
+    { src: 'GRL', dst: 'COD', label: 'Greenland → DR Congo' },
+    { src: 'AUS', dst: 'USA', label: 'Australia → USA' },
+    { src: 'IND', dst: 'ARG', label: 'India → Argentina' },
+    { src: 'JPN', dst: 'MDG', label: 'Japan → Madagascar' },
+  ],
+  city: [
+    { src: 'Q60', dst: 'Q1490', label: 'New York → Tokyo' },
+    { src: 'Q84', dst: 'Q3630', label: 'London → Jakarta' },
+    { src: 'Q8686', dst: 'Q334', label: 'Shanghai → Singapore' },
+    { src: 'Q1489', dst: 'Q1156', label: 'Mexico City → Mumbai' },
+  ],
 }
-document.querySelectorAll<HTMLButtonElement>('[data-preset]').forEach(b => b.addEventListener('click', async () => {
-  const p = PRESETS[b.dataset.preset!]; const src = world.byId.get(p.src)!; const dst = world.byId.get(p.dst)!
-  clearGhosts(); hintEl.classList.add('off')
-  if (transform.k !== 1) { transform = zoomIdentity; select(canvas).call(zoomBehavior.transform, zoomIdentity) }
-  setLevel(p.level)
-  const g = addGhost(src, src.centroid)
-  await new Promise(r => setTimeout(r, reducedMotion() ? 0 : 250)) // let the lift read before the glide
-  await glideTo(g, dst.centroid)
-  if (ghosts.includes(g)) showCompare(g)
-}))
+const presetsEl = $('#presets')
+let presetsLevel: Level | null = null
+function renderPresets() {
+  const level = currentLevel()
+  if (level === presetsLevel) return
+  presetsLevel = level
+  presetsEl.innerHTML = PRESETS[level]
+    .filter(p => world.byId.has(p.src) && world.byId.has(p.dst))
+    .map((p, i) => `<button class="chip" data-preset="${i}">${esc(p.label)}</button>`).join('')
+}
+let presetBusy = false
+presetsEl.addEventListener('click', async (e) => {
+  const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-preset]'); if (!b || presetBusy) return
+  const p = PRESETS[presetsLevel ?? currentLevel()][Number(b.dataset.preset)]; if (!p) return
+  const src = world.byId.get(p.src)!, dst = world.byId.get(p.dst)!
+  presetBusy = true; b.classList.add('busy')
+  try {
+    clearGhosts(); hideCompare(); hintEl.classList.add('off')
+    const level = presetsLevel ?? currentLevel()
+    // 1. camera: cities zoom in on the destination; countries/continents return to the world view if zoomed
+    if (level === 'city') {
+      await Promise.all([loadCity(src), loadCity(dst)])
+      await animateZoom(viewFor(dst, 0.3), 800)
+    } else if (transform.k !== 1 || transform.x !== 0 || transform.y !== 0) {
+      await animateZoom(zoomIdentity, 700)
+    }
+    setLevel(level)
+    // 2. lift at home, let the lift read, then glide onto the destination
+    const g = addGhost(src, src.centroid)
+    await new Promise(r => setTimeout(r, reducedMotion() ? 0 : 250))
+    await glideTo(g, dst.centroid)
+    if (ghosts.includes(g)) showCompare(g)
+  } catch { toast('Could not load that comparison') }
+  finally { presetBusy = false; b.classList.remove('busy') }
+})
 
 // search
 const searchEl = $<HTMLInputElement>('#search'), resultsEl = $<HTMLUListElement>('#results')
@@ -871,7 +932,7 @@ function closeWhy() { whyEl.hidden = true; $('#why-btn').setAttribute('aria-expa
 $('#why-btn').addEventListener('click', openWhy)
 $('#why-close').addEventListener('click', closeWhy)
 $('#why-skip').addEventListener('click', closeWhy)
-$('#why-try').addEventListener('click', () => { closeWhy(); $<HTMLButtonElement>('[data-preset="grl-af"]').click() })
+$('#why-try').addEventListener('click', () => { closeWhy(); setLevel('continent'); renderPresets(); presetsEl.querySelector<HTMLButtonElement>('[data-preset="0"]')?.click() })
 whyEl.addEventListener('click', (e) => { if (e.target === whyEl) closeWhy() })
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !whyEl.hidden) closeWhy() })
 function maybeShowWhy() {
