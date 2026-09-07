@@ -1,1 +1,1 @@
-{"type":"Feature","properties":{"n":"Shizuoka","def":"municipality","a":1439,"osm":4674742,"water":24},"geometry":{"type":"Polygon","coordinates":[[[138.081,35.3255],[138.2295,35.648],[138.235,35.372],[138.6404,35.1173],[138.3501,34.8962],[138.081,35.3255]]]},"id":"Q174691"}
+{"type":"Feature","properties":{"n":"Shizuoka","def":"municipality","a":1439,"osm":4674742,"water":24,"osmName":"Shizuoka"},"geometry":{"type":"Polygon","coordinates":[[[138.081,35.3255],[138.2295,35.648],[138.235,35.372],[138.6404,35.1173],[138.3501,34.8962],[138.081,35.3255]]]},"id":"Q174691"}

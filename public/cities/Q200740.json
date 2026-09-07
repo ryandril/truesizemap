@@ -1,1 +1,1 @@
-{"type":"Feature","properties":{"n":"Asahikawa","def":"municipality","a":578,"osm":4060429,"water":0},"geometry":{"type":"Polygon","coordinates":[[[142.364,43.617],[142.1475,43.9065],[142.4205,43.9455],[142.522,43.788],[142.364,43.617]]]},"id":"Q200740"}
+{"type":"Feature","properties":{"n":"Asahikawa","def":"municipality","a":578,"osm":4060429,"water":0,"osmName":"Asahikawa"},"geometry":{"type":"Polygon","coordinates":[[[142.364,43.617],[142.1475,43.9065],[142.4205,43.9455],[142.522,43.788],[142.364,43.617]]]},"id":"Q200740"}

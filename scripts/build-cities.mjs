@@ -240,10 +240,10 @@ async function worker() {
       if (a < 1 || a > 3.5e6) { misses.push({ ...s, why: `implausible area ${a.toLocaleString()} km²` }); continue }
       // a metropolis mapped to a 4 km² old-town municipality is the wrong relation (Damascus): better a miss than a lie
       if ((s.pop >= 500_000 && a < 15) || (s.pop >= 100_000 && a < 3)) { misses.push({ ...s, why: `boundary too small for its population (${a} km²)` }); continue }
-      const name = tags['name:en'] || s.n
+      const name = s.n // short, familiar name from Natural Earth ('Jakarta', not 'Special Capital Region of Jakarta')
       const def = definition(tags)
       const water = feat.water; delete feat.water
-      feat.id = q; feat.properties = { n: name, def, a, osm: rel, water }
+      feat.id = q; feat.properties = { n: name, def, a, osm: rel, water, osmName: tags['name:en'] || tags.name || null }
       writeFileSync(P(`public/cities/${q}.json`), JSON.stringify(feat))
       index.push({ id: q, n: name, c: s.c, lon: s.lon, lat: s.lat, pop: s.pop, a, cap: s.cap ? 1 : 0, w: water, src }) // def lives in the boundary file
     } catch (e) { misses.push({ ...s, why: 'error: ' + e.message }) }

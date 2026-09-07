@@ -1,1 +1,1 @@
-{"type":"Feature","properties":{"n":"Pingdu City","def":"county-level","a":1719,"osm":5655170,"water":0},"geometry":{"type":"Polygon","coordinates":[[[119.5235,36.77],[120.3225,36.999],[120.0245,36.4795],[119.5235,36.77]]]},"id":"Q2060398"}
+{"type":"Feature","properties":{"n":"Pingdu","def":"county-level","a":1719,"osm":5655170,"water":0,"osmName":"Pingdu City"},"geometry":{"type":"Polygon","coordinates":[[[119.5235,36.77],[120.3225,36.999],[120.0245,36.4795],[119.5235,36.77]]]},"id":"Q2060398"}

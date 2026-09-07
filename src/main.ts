@@ -573,6 +573,11 @@ function drawLabels() {
     items.push(`<div class="label" style="left:${x}px;top:${y}px;--c:${g.color}" data-key="${g.key}"><b>${esc(g.place.name)}</b>${def} · ${over}</div>`)
   }
   labelsEl.innerHTML = items.join('')
+  for (const el of labelsEl.querySelectorAll<HTMLElement>('.label')) { // keep the pill on screen
+    const w = el.offsetWidth, x = parseFloat(el.style.left)
+    const min = w / 2 + 6, max = width - w / 2 - 6
+    if (x < min) el.style.left = min + 'px'; else if (x > max) el.style.left = max + 'px'
+  }
   if (selected) fillCompare(selected)
 }
 const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
@@ -861,18 +866,25 @@ presetsEl.addEventListener('click', async (e) => {
   try {
     clearGhosts(); hideCompare(); hintEl.classList.add('off')
     const level = presetsLevel ?? currentLevel()
-    // 1. camera: cities zoom in on the destination; countries/continents return to the world view if zoomed
-    if (level === 'city') {
-      await Promise.all([loadCity(src), loadCity(dst)])
-      await animateZoom(viewFor(dst, 0.3), 800)
-    } else if (transform.k !== 1 || transform.x !== 0 || transform.y !== 0) {
-      await animateZoom(zoomIdentity, 700)
-    }
+    if (level === 'city') await Promise.all([loadCity(src), loadCity(dst)])
     setLevel(level)
-    // 2. lift at home, let the lift read, then glide onto the destination
-    const g = addGhost(src, src.centroid)
-    await new Promise(r => setTimeout(r, reducedMotion() ? 0 : 250))
-    await glideTo(g, dst.centroid)
+    const target = level === 'city' ? viewFor(dst, 0.3) : zoomIdentity
+    const needMove = Math.abs(target.k - transform.k) > 0.01 || Math.abs(target.x - transform.x) > 1 || Math.abs(target.y - transform.y) > 1
+    const home = projection(src.centroid)
+    const srcOnScreen = !!home && home[0] > 0 && home[0] < width && home[1] > insetTop && home[1] < height - insetBottom
+    let g: Ghost
+    if (srcOnScreen) {
+      // lift where it lives, then travel and move the camera together so shape and view arrive at once
+      g = addGhost(src, src.centroid)
+      await new Promise(r => setTimeout(r, reducedMotion() ? 0 : 220))
+      await Promise.all([needMove ? animateZoom(target, 900) : Promise.resolve(), glideTo(g, dst.centroid)])
+    } else {
+      // the shape lives off screen: bring the camera to the destination and drop the shape onto it as it arrives
+      const cam = needMove ? animateZoom(target, 800) : Promise.resolve()
+      await new Promise(r => setTimeout(r, reducedMotion() ? 0 : 350))
+      g = addGhost(src, dst.centroid)
+      await cam
+    }
     if (ghosts.includes(g)) showCompare(g)
   } catch { toast('Could not load that comparison') }
   finally { presetBusy = false; b.classList.remove('busy') }
