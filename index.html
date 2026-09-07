@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+  <meta name="theme-color" content="#0B0D12" />
+  <title>The True Size Map — drag a country, see its real size</title>
+  <meta name="description" content="On 4 Sep 2026 the UN voted 164–1 to 'Correct the Map'. Lift any country or continent off a Mercator map, drag it anywhere, and flip to the Equal Earth projection the UN endorsed." />
+  <meta property="og:title" content="The True Size Map" />
+  <meta property="og:description" content="Drag any country or continent around a Mercator map and watch it resize. Flip to Equal Earth, the projection the UN just endorsed 164–1." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://truesizemap.ryandrilowell.com/" />
+  <meta property="og:image" content="https://truesizemap.ryandrilowell.com/og-card.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%230B0D12' stroke='%23E8A33D' stroke-width='2'/%3E%3Cellipse cx='16' cy='16' rx='6' ry='14' fill='none' stroke='%23E8A33D' stroke-width='1.5'/%3E%3Cline x1='2' y1='16' x2='30' y2='16' stroke='%23E8A33D' stroke-width='1.5'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="/src/style.css" />
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('theme');
+        if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+        else if (matchMedia('(prefers-color-scheme: light)').matches) document.documentElement.classList.add('system-light');
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+  <div id="app">
+    <main class="stage">
+      <canvas id="map" aria-label="World map. Tap a place to lift a copy, then drag it."></canvas>
+      <div id="labels" class="labels" aria-live="polite"></div>
+      <div id="hint" class="hint">Tap a country to lift a copy · drag it anywhere</div>
+      <div id="toast" class="toast" hidden></div>
+      <button id="reset" class="icon-btn reset" title="Reset view" aria-label="Reset view" hidden>⟲</button>
+
+      <section class="compare sheet" id="compare" hidden>
+        <button class="close" id="compare-close" aria-label="Close">×</button>
+        <div class="cmp-row">
+          <div class="cmp-cell">
+            <div class="cmp-name" id="cmp-a-name"></div>
+            <div class="cmp-def" id="cmp-a-def"></div>
+            <div class="cmp-area" id="cmp-a-area"></div>
+          </div>
+          <div class="cmp-vs" id="cmp-ratio"></div>
+          <div class="cmp-cell">
+            <div class="cmp-name" id="cmp-b-name"></div>
+            <div class="cmp-def" id="cmp-b-def"></div>
+            <div class="cmp-area" id="cmp-b-area"></div>
+          </div>
+        </div>
+        <p class="cmp-sentence" id="cmp-sentence"></p>
+        <div class="cmp-actions">
+          <button class="btn" id="cmp-remove">Remove this shape</button>
+        </div>
+      </section>
+    </main>
+
+    <header class="top chrome">
+      <div class="brand">
+        <h1>The True Size Map</h1>
+        <p class="hook">The UN just voted 164–1 to retire this map. <button class="link" id="why-btn" aria-expanded="false">Why?</button></p>
+      </div>
+      <div class="top-right">
+        <div class="proj" role="radiogroup" aria-label="Map projection">
+          <button class="seg on" data-proj="mercator" role="radio" aria-checked="true">Mercator</button>
+          <button class="seg" data-proj="equalearth" role="radio" aria-checked="false">Equal Earth</button>
+        </div>
+        <button class="icon-btn theme" id="theme" title="Switch light / dark" aria-label="Switch light / dark">☾</button>
+      </div>
+      <section class="why sheet" id="why" hidden>
+        <p>On <strong>4 September 2026</strong> the UN General Assembly adopted the “Correct the Map” resolution, 164 votes to 1. It asks schools, governments and tech companies to use <strong>Equal Earth</strong>, a projection where every country is drawn at its true relative area, instead of <strong>Mercator</strong>, the 1569 navigation chart that stretches land near the poles. On Mercator, Greenland looks the size of Africa. Africa is 14 times bigger.</p>
+        <p><strong>Try it:</strong> tap any country to lift a copy. Drag it anywhere and it re-sizes to what it would look like there. Flick it and it coasts. Then flip to Equal Earth and watch the distortion vanish.</p>
+        <p class="src">Sources: <a href="https://news.un.org/en/story/2026/09/1168284" target="_blank" rel="noopener">UN News</a> · <a href="https://press.un.org/en/2026/ga12779.doc.htm" target="_blank" rel="noopener">UN press release</a> · <a href="https://www.npr.org/2026/09/04/nx-s1-5958611/africa-world-map-un-vote" target="_blank" rel="noopener">NPR</a> · <a href="https://en.wikipedia.org/wiki/Equal_Earth_projection" target="_blank" rel="noopener">Equal Earth</a></p>
+      </section>
+    </header>
+
+    <footer class="controls chrome">
+      <div class="row">
+        <div class="level" role="radiogroup" aria-label="What to pick up">
+          <button class="seg" data-level="city" role="radio" aria-checked="false" disabled title="Cities coming soon">City <small>soon</small></button>
+          <button class="seg on" data-level="country" role="radio" aria-checked="true">Country</button>
+          <button class="seg" data-level="continent" role="radio" aria-checked="false">Continent</button>
+        </div>
+        <div class="search">
+          <input id="search" type="search" placeholder="Search a place…" autocomplete="off" spellcheck="false" enterkeyhint="search" />
+          <ul id="results" class="results sheet" hidden></ul>
+        </div>
+      </div>
+      <div class="row presets">
+        <span class="lbl">Try:</span>
+        <button class="chip" data-preset="grl-af">Greenland → Africa</button>
+        <button class="chip" data-preset="eu-af">Europe → Africa</button>
+        <button class="chip" data-preset="ak-mx">Alaska → Mexico</button>
+        <span class="spacer"></span>
+        <button class="chip share" id="share">Copy link</button>
+        <button class="chip ghost-clear" id="clear" hidden>Clear</button>
+      </div>
+      <p class="fine">
+        Boundaries: <a href="https://www.naturalearthdata.com/" target="_blank" rel="noopener">Natural Earth</a>, public domain. Areas are computed from the drawn boundaries on a sphere, so they differ slightly from official figures. Continents follow Natural Earth, with Russia cut at the Urals. Cities (OpenStreetMap) coming soon.
+        Made by <a href="https://ryandrilowell.com" target="_blank" rel="noopener">Ryandri Lowell</a> · <a href="https://github.com/ryandril/truesizemap" target="_blank" rel="noopener">Source</a>
+      </p>
+    </footer>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+  <!-- GoatCounter analytics (privacy-friendly, no cookies). Replace SITE with the real code, then un-comment.
+  <script data-goatcounter="https://SITE.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
+  -->
+</body>
+</html>
