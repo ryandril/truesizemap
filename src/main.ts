@@ -294,12 +294,13 @@ function setAnchor(g: Ghost, a: LonLat) {
   mark('move', T0)
 }
 function removeGhost(g: Ghost) {
+  g.settled?.(); g.settled = undefined
   ghosts = ghosts.filter(x => x !== g)
   if (selected === g) { selected = null; hideCompare() }
   $('#clear').hidden = ghosts.length === 0
   requestDraw(); pushHash()
 }
-function clearGhosts() { ghosts = []; selected = null; hideCompare(); $('#clear').hidden = true; requestDraw(); pushHash() }
+function clearGhosts() { for (const g of ghosts) { g.settled?.(); g.settled = undefined } ghosts = []; selected = null; hideCompare(); $('#clear').hidden = true; requestDraw(); pushHash() }
 
 /** what the ghost is "over": the place under its anchor at the current level, excluding itself. */
 function under(g: Ghost): Place | null {
@@ -857,16 +858,20 @@ function renderPresets() {
     .filter(p => world.byId.has(p.src) && world.byId.has(p.dst))
     .map((p, i) => `<button class="chip" data-preset="${i}">${esc(p.label)}</button>`).join('')
 }
-let presetBusy = false
+let presetSeq = 0
+const withTimeout = <T,>(p: Promise<T>, ms: number) => Promise.race([p, new Promise<void>(r => setTimeout(r, ms))])
 presetsEl.addEventListener('click', async (e) => {
-  const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-preset]'); if (!b || presetBusy) return
+  const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-preset]'); if (!b) return
   const p = PRESETS[presetsLevel ?? currentLevel()][Number(b.dataset.preset)]; if (!p) return
   const src = world.byId.get(p.src)!, dst = world.byId.get(p.dst)!
-  presetBusy = true; b.classList.add('busy')
+  const seq = ++presetSeq // a newer click cancels this run at the next step
+  const live = () => seq === presetSeq
+  presetsEl.querySelectorAll('.busy').forEach(x => x.classList.remove('busy')); b.classList.add('busy')
   try {
     clearGhosts(); hideCompare(); hintEl.classList.add('off')
     const level = presetsLevel ?? currentLevel()
-    if (level === 'city') await Promise.all([loadCity(src), loadCity(dst)])
+    if (level === 'city') await withTimeout(Promise.all([loadCity(src), loadCity(dst)]), 6000)
+    if (!live()) return
     setLevel(level)
     const target = level === 'city' ? viewFor(dst, 0.3) : zoomIdentity
     const needMove = Math.abs(target.k - transform.k) > 0.01 || Math.abs(target.x - transform.x) > 1 || Math.abs(target.y - transform.y) > 1
@@ -877,17 +882,19 @@ presetsEl.addEventListener('click', async (e) => {
       // lift where it lives, then travel and move the camera together so shape and view arrive at once
       g = addGhost(src, src.centroid)
       await new Promise(r => setTimeout(r, reducedMotion() ? 0 : 220))
-      await Promise.all([needMove ? animateZoom(target, 900) : Promise.resolve(), glideTo(g, dst.centroid)])
+      if (!live()) return
+      await withTimeout(Promise.all([needMove ? animateZoom(target, 900) : Promise.resolve(), glideTo(g, dst.centroid)]), 4000)
     } else {
       // the shape lives off screen: bring the camera to the destination and drop the shape onto it as it arrives
       const cam = needMove ? animateZoom(target, 800) : Promise.resolve()
       await new Promise(r => setTimeout(r, reducedMotion() ? 0 : 350))
+      if (!live()) return
       g = addGhost(src, dst.centroid)
-      await cam
+      await withTimeout(cam, 3000)
     }
-    if (ghosts.includes(g)) showCompare(g)
+    if (live() && ghosts.includes(g)) showCompare(g)
   } catch { toast('Could not load that comparison') }
-  finally { presetBusy = false; b.classList.remove('busy') }
+  finally { if (live()) b.classList.remove('busy') }
 })
 
 // search
