@@ -3,6 +3,7 @@ import type { Topology, GeometryCollection } from 'topojson-specification'
 import { areaKm2, centroid, bounds, type Bounds, type LonLat, type PolyFeature } from './geo'
 import worldUrl from './assets/world.json?url' // hashed by Vite, so a rebuilt file is never served stale
 import citiesUrl from './assets/cities.json?url'
+import worldLiteUrl from './assets/world-lite.json?url'
 
 export type Level = 'city' | 'country' | 'continent'
 
@@ -88,6 +89,18 @@ export async function loadWorld(url = worldUrl): Promise<World> {
   const byId = new Map<string, Place>()
   for (const p of [...countries, ...continents, ...cities]) byId.set(p.id, p)
   return { countries, continents, cities, byId, land: countries.filter(c => c.id !== 'US-AK').map(c => c.feature!) }
+}
+
+/** Coarse country outlines for animation frames (projection morph). Loaded after start. */
+let liteJob: Promise<PolyFeature[]> | null = null
+export function loadWorldLite(): Promise<PolyFeature[]> {
+  if (!liteJob) liteJob = (async () => {
+    const topo = (await (await fetch(worldLiteUrl)).json()) as Topology<{ countries: GeometryCollection<Props> }>
+    const fc = topoFeature(topo, topo.objects.countries)
+    const feats = (fc.type === 'FeatureCollection' ? fc.features : [fc]) as PolyFeature[]
+    return feats.filter(f => f.geometry && String(f.id) !== 'US-AK')
+  })()
+  return liteJob
 }
 
 const cityLoads = new Map<string, Promise<Place>>()

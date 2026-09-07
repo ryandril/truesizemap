@@ -2,7 +2,7 @@ import {
   geoMercator, geoEqualEarth, geoMercatorRaw, geoEqualEarthRaw, geoProjection, geoPath, geoGraticule10, zoom as d3zoom, zoomIdentity, select, interpolateZoom, easeCubicInOut,
   type GeoProjection, type ZoomTransform, type ZoomBehavior,
 } from 'd3'
-import { loadWorld, loadCity, searchPlaces, type Level, type Place, type World } from './data'
+import { loadWorld, loadCity, loadWorldLite, searchPlaces, type Level, type Place, type World } from './data'
 import { moveGeometry, contains, inBounds, fmtKm2, fmtRatio, type LonLat, type PolyFeature } from './geo'
 import { Spring, project, rubberband, reducedMotion } from './spring'
 
@@ -406,18 +406,27 @@ let base: HTMLCanvasElement | null = null, baseT: ZoomTransform | null = null, b
 const baseKeyNow = () => [projName, currentLevel(), isLight() ? 'l' : 'd', width, height, dpr].join('|')
 let citiesLoaded = 0 // bumps when a city boundary arrives, so the cached base re-renders
 let morphing = false
+let liteLand: PolyFeature[] | null = null
 function renderBase() {
   if (!base) base = document.createElement('canvas')
-  if (base.width !== width * dpr || base.height !== height * dpr) { base.width = width * dpr; base.height = height * dpr }
+  // animation frames: coarse outlines at 1× pixel density; everything else full detail at device density
+  const lite = morphing && !!liteLand
+  const d = lite ? 1 : dpr
+  if (base.width !== width * d || base.height !== height * d) { base.width = width * d; base.height = height * d }
   const bc = base.getContext('2d')!
   const path = geoPath(projection, bc)
-  bc.setTransform(dpr, 0, 0, dpr, 0, 0)
+  bc.setTransform(d, 0, 0, d, 0, 0)
   bc.clearRect(0, 0, width, height)
   const level = currentLevel()
   visibleCities = []
   eachCopy(() => {
     bc.beginPath(); path(sphere); bc.fillStyle = pal.ocean; bc.fill()
     if (!morphing) { bc.beginPath(); path(graticule); bc.strokeStyle = pal.grid; bc.lineWidth = 0.6; bc.stroke() }
+    if (lite) { // one pass: coarse land fill + outline, nothing else
+      bc.beginPath(); for (const f of liteLand!) path(f)
+      bc.fillStyle = pal.land; bc.fill(); bc.strokeStyle = pal.border; bc.lineWidth = 0.7; bc.stroke()
+      return
+    }
     bc.beginPath(); for (const f of world.land) path(f)
     bc.fillStyle = pal.land; bc.fill()
     const borders = level === 'continent' ? world.continents : world.countries
@@ -545,8 +554,8 @@ function draw() {
     const s = transform.k / baseT.k
     ctx.save(); ctx.fillStyle = pal.ocean
     ctx.translate(transform.x - s * baseT.x, transform.y - s * baseT.y); ctx.scale(s, s)
-    ctx.drawImage(base!, 0, 0, width, height); ctx.restore()
-  } else ctx.drawImage(base!, 0, 0, width, height)
+    ctx.drawImage(base!, 0, 0, base!.width, base!.height, 0, 0, width, height); ctx.restore()
+  } else ctx.drawImage(base!, 0, 0, base!.width, base!.height, 0, 0, width, height)
   mark('base', T0)
   const T1 = performance.now()
   eachCopy(() => {
@@ -833,7 +842,7 @@ function morphProjection(from: ProjName, to: ProjName) {
   morphing = true
   const frame = (u: number) => {
     const raw = (λ: number, φ: number) => { const a = ra(λ, φ), b = rb(λ, φ); return [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u] as [number, number] }
-    const pr = geoProjection(raw).scale(s0 + (s1 - s0) * u).translate([t0[0] + (t1[0] - t0[0]) * u, t0[1] + (t1[1] - t0[1]) * u]).precision(0.5)
+    const pr = geoProjection(raw).scale(s0 + (s1 - s0) * u).translate([t0[0] + (t1[0] - t0[0]) * u, t0[1] + (t1[1] - t0[1]) * u]).precision(1)
     projection = pr
     baseScale = pr.scale(); baseTranslate = pr.translate() as [number, number]
     transform = viewTransform(k, center)
@@ -1043,6 +1052,7 @@ async function boot() {
   readHash()
   hintEl.textContent = ghosts.length ? 'Drag it · flick it · tap to compare' : 'Tap a country, then drag it'
   maybeShowWhy()
+  setTimeout(() => { void loadWorldLite().then(f => { liteLand = f }) }, 1500)
   new ResizeObserver(() => resize()).observe(stage)
   new ResizeObserver(() => resize()).observe(topEl)
   new ResizeObserver(() => resize()).observe(controlsEl)

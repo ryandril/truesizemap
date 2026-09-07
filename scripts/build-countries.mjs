@@ -122,7 +122,19 @@ topo = topoSimplify.filter(topo, topoSimplify.filterAttachedWeight(topo, 2e-9))
 for (const arc of topo.arcs) for (const pt of arc) pt.length = 2
 topo = topoClient.quantize(topo, 1e5)
 
+// ---------- a coarse copy for animation frames (projection morph): ~5× fewer points, tiny islands dropped ----------
+let lite = topoServer.topology({ countries: { type: 'FeatureCollection', features: countries } })
+lite = topoSimplify.presimplify(lite, topoSimplify.sphericalTriangleArea)
+for (const arc of lite.arcs) for (const pt of arc) if (pt[1] < -89.9) pt[2] = Infinity
+lite = topoSimplify.simplify(lite, topoSimplify.quantile(lite, 0.08)) // quantile(p) = weight below which (1−p) of points are dropped, i.e. keep ~8%
+lite = topoSimplify.filter(lite, topoSimplify.filterAttachedWeight(lite, 1.5e-7))
+for (const arc of lite.arcs) for (const pt of arc) pt.length = 2
+lite = topoClient.quantize(lite, 1e4)
+
 mkdirSync(new URL('../src/assets/', import.meta.url), { recursive: true })
+const liteOut = JSON.stringify(lite)
+writeFileSync(new URL('../src/assets/world-lite.json', import.meta.url), liteOut)
+console.log(`world-lite.json ${(liteOut.length / 1024).toFixed(0)} KB, ${lite.arcs.length} arcs`)
 const out = JSON.stringify(topo)
 writeFileSync(new URL('../src/assets/world.json', import.meta.url), out)
 
