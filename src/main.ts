@@ -100,14 +100,6 @@ function projectionFor(projName: ProjName): GeoProjection {
   const pad = 8
   const visH = height - insetTop - insetBottom
   p.fitExtent([[pad, insetTop + pad], [width - pad, height - insetBottom - pad]], sphere)
-  if (projName === 'equalearth') {
-    // full-screen like Mercator: fill the width (landscape) or the height (portrait); the world wraps sideways
-    const W1 = 2 * geoEqualEarthRaw(Math.PI, 0)[0], H1 = 2 * Math.abs(geoEqualEarthRaw(0, Math.PI / 2)[1])
-    p.scale(width > visH ? (width - 2 * pad) / W1 : (visH - 2 * pad) / H1)
-    p.translate([0, 0])
-    const c = p([10, 12])!
-    p.translate([width / 2 - c[0], insetTop + visH / 2 - c[1]])
-  }
   if (projName === 'mercator') {
     if (width > visH) {
       // landscape: fill the width, let the poles run off (they are ice anyway); centre ~12°N in the visible band
@@ -341,6 +333,7 @@ const mark = (k: string, t0: number) => { stats[k] = (stats[k] ?? 0) * 0.5 + (pe
 /** Mercator wraps: the x-offsets (in px) of every copy of the world that touches the viewport. */
 function worldWidth(): number { const a = projection([-180, 0]), b = projection([180, 0]); return a && b ? b[0] - a[0] : 2 * Math.PI * projection.scale() }
 function worldCopies(): number[] {
+  if (projName !== 'mercator') return [0] // Equal Earth is shown whole, no wrapping
   const w = worldWidth()
   const tx = projection.translate()[0]
   const out: number[] = []
