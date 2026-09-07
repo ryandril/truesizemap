@@ -35,7 +35,7 @@
     <main class="stage">
       <canvas id="map" aria-label="World map. Tap a place to lift a copy, then drag it."></canvas>
       <div id="labels" class="labels" aria-live="polite"></div>
-      <div id="hint" class="hint">Tap a country to lift a copy · drag it anywhere</div>
+      <div id="hint" class="hint">Tap a country, then drag it</div>
       <div id="toast" class="toast" hidden></div>
       <button id="reset" class="icon-btn reset" title="Reset view" aria-label="Reset view" hidden>⟲</button>
 
@@ -61,6 +61,21 @@
       </section>
     </main>
 
+    <div class="why" id="why" hidden role="dialog" aria-modal="true" aria-labelledby="why-title">
+      <div class="why-card sheet">
+        <button class="close" id="why-close" aria-label="Close">×</button>
+        <h2 id="why-title">The map you grew up with is wrong about size</h2>
+        <p>On <strong>4 September 2026</strong> the UN General Assembly voted 164 to 1 to “Correct the Map”. It asks schools, governments and tech companies to use <strong>Equal Earth</strong>, a projection that draws every country at its true relative area, instead of <strong>Mercator</strong>, the 1569 navigation chart that stretches land near the poles. On Mercator, Greenland looks the size of Africa. Africa is 14 times bigger.</p>
+        <p><strong>Try it:</strong> tap any country to lift a copy. Drag it anywhere and it re-sizes to what it would look like there. Flick it and it coasts. Zoom in for cities. Then flip to Equal Earth and watch the distortion vanish.</p>
+        <div class="why-actions">
+          <button class="btn primary" id="why-try">Show me: Greenland → Africa</button>
+          <button class="btn" id="why-skip">Just explore</button>
+        </div>
+        <p class="src">Sources: <a href="https://news.un.org/en/story/2026/09/1168284" target="_blank" rel="noopener">UN News</a> · <a href="https://press.un.org/en/2026/ga12779.doc.htm" target="_blank" rel="noopener">UN press release</a> · <a href="https://www.npr.org/2026/09/04/nx-s1-5958611/africa-world-map-un-vote" target="_blank" rel="noopener">NPR</a> · <a href="https://en.wikipedia.org/wiki/Equal_Earth_projection" target="_blank" rel="noopener">Equal Earth</a></p>
+        <p class="src">Boundaries: <a href="https://www.naturalearthdata.com/" target="_blank" rel="noopener">Natural Earth</a> (public domain) and © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> (ODbL) for cities, clipped to the coastline. Areas are computed from the drawn boundaries on a sphere. Russia is cut at the Urals for the continent layer. Made by <a href="https://ryandrilowell.com" target="_blank" rel="noopener">Ryandri Lowell</a> · <a href="https://github.com/ryandril/truesizemap" target="_blank" rel="noopener">Source</a></p>
+      </div>
+    </div>
+
     <header class="top chrome">
       <div class="brand">
         <h1>The True Size Map</h1>
@@ -73,11 +88,7 @@
         </div>
         <button class="icon-btn theme" id="theme" title="Switch light / dark" aria-label="Switch light / dark">☾</button>
       </div>
-      <section class="why sheet" id="why" hidden>
-        <p>On <strong>4 September 2026</strong> the UN General Assembly adopted the “Correct the Map” resolution, 164 votes to 1. It asks schools, governments and tech companies to use <strong>Equal Earth</strong>, a projection where every country is drawn at its true relative area, instead of <strong>Mercator</strong>, the 1569 navigation chart that stretches land near the poles. On Mercator, Greenland looks the size of Africa. Africa is 14 times bigger.</p>
-        <p><strong>Try it:</strong> tap any country to lift a copy. Drag it anywhere and it re-sizes to what it would look like there. Flick it and it coasts. Then flip to Equal Earth and watch the distortion vanish.</p>
-        <p class="src">Sources: <a href="https://news.un.org/en/story/2026/09/1168284" target="_blank" rel="noopener">UN News</a> · <a href="https://press.un.org/en/2026/ga12779.doc.htm" target="_blank" rel="noopener">UN press release</a> · <a href="https://www.npr.org/2026/09/04/nx-s1-5958611/africa-world-map-un-vote" target="_blank" rel="noopener">NPR</a> · <a href="https://en.wikipedia.org/wiki/Equal_Earth_projection" target="_blank" rel="noopener">Equal Earth</a></p>
-      </section>
+
     </header>
 
     <footer class="controls chrome">

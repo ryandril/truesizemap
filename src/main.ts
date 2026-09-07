@@ -252,7 +252,7 @@ function addGhost(place: Place, anchor?: LonLat, animateLift = true): Ghost {
   setAnchor(g, a)
   if (animateLift && !reducedMotion()) { g.lift.to(1); kick() }
   ghosts.push(g)
-  hintEl.textContent = 'Drag it anywhere · flick it · tap it to compare'
+  hintEl.textContent = 'Drag it · flick it · tap to compare'
   $('#clear').hidden = false
   requestDraw(); pushHash()
   return g
@@ -772,12 +772,21 @@ matchMedia('(prefers-color-scheme: light)').addEventListener('change', (e) => {
   document.documentElement.classList.toggle('system-light', e.matches); readPalette(); requestDraw()
 })
 
-// why
-$('#why-btn').addEventListener('click', () => {
-  const w = $('#why'); w.hidden = !w.hidden
-  $('#why-btn').setAttribute('aria-expanded', String(!w.hidden))
-  requestAnimationFrame(resize)
-})
+// why: a modal, shown on the first visit and on demand
+const whyEl = $('#why')
+function openWhy() { whyEl.hidden = false; $('#why-btn').setAttribute('aria-expanded', 'true'); $('#why-close').focus() }
+function closeWhy() { whyEl.hidden = true; $('#why-btn').setAttribute('aria-expanded', 'false'); try { localStorage.setItem('seenWhy', '1') } catch { /* private mode */ } }
+$('#why-btn').addEventListener('click', openWhy)
+$('#why-close').addEventListener('click', closeWhy)
+$('#why-skip').addEventListener('click', closeWhy)
+$('#why-try').addEventListener('click', () => { closeWhy(); $<HTMLButtonElement>('[data-preset="grl-af"]').click() })
+whyEl.addEventListener('click', (e) => { if (e.target === whyEl) closeWhy() })
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !whyEl.hidden) closeWhy() })
+function maybeShowWhy() {
+  let seen = false
+  try { seen = localStorage.getItem('seenWhy') === '1' } catch { /* noop */ }
+  if (!seen && !ghosts.length) setTimeout(openWhy, 500) // a shared link opens on its comparison, not the explainer
+}
 
 let toastTimer = 0
 function toast(msg: string) {
@@ -823,7 +832,8 @@ async function boot() {
   setupZoom()
   resize()
   readHash()
-  hintEl.textContent = ghosts.length ? 'Drag it anywhere · flick it · tap it to compare' : 'Tap a country to lift a copy · drag it anywhere'
+  hintEl.textContent = ghosts.length ? 'Drag it · flick it · tap to compare' : 'Tap a country, then drag it'
+  maybeShowWhy()
   new ResizeObserver(() => resize()).observe(stage)
   new ResizeObserver(() => resize()).observe(topEl)
   new ResizeObserver(() => resize()).observe(controlsEl)
