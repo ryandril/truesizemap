@@ -143,10 +143,7 @@ function resize() {
 // ------------------------------------------------------------------ level
 function bandFor(k: number) { return ZOOM_BANDS.findIndex(b => k < b.max) }
 function currentLevel(): Level {
-  const band = bandFor(transform.k)
-  if (levelOverride && band === overrideBand) return levelOverride
-  levelOverride = null
-  return ZOOM_BANDS[band].level
+  return levelOverride ?? ZOOM_BANDS[bandFor(transform.k)].level
 }
 function setLevel(l: Level) { levelOverride = l; overrideBand = bandFor(transform.k); syncLevelUI(); requestDraw() }
 function syncLevelUI() {
@@ -189,17 +186,23 @@ function invert(xy: [number, number]): LonLat | null {
 let visibleCities: { c: Place; x: number; y: number }[] = []
 function cityAtPixel(xy: [number, number], radius = CITY_TAP_PX): Place | null {
   let best: Place | null = null, bd = radius * radius
-  for (const v of visibleCities) { const d = (v.x - xy[0]) ** 2 + (v.y - xy[1]) ** 2; if (d < bd) { bd = d; best = v.c } }
+  for (const v of visibleCities) { // reproject: the base render may lag a zoom gesture by a frame or two
+    const p = screenPos(v.c.label); if (!p) continue
+    const d = (p[0] - xy[0]) ** 2 + (p[1] - xy[1]) ** 2; if (d < bd) { bd = d; best = v.c }
+  }
   return best
 }
 
 // ------------------------------------------------------------------ ghosts
 /** Lift a place; a city fetches its boundary first. */
+let liftSeq = 0
 async function liftPlace(place: Place, anchor?: LonLat, animateLift = true): Promise<Ghost | null> {
+  const seq = ++liftSeq
   if (!place.feature) {
     hintEl.textContent = `Loading ${place.name}…`; hintEl.classList.remove('off')
     try { await loadCity(place) }
-    catch { toast(`No boundary for ${place.name} yet`); hintEl.classList.add('off'); return null }
+    catch { if (seq === liftSeq) { toast(`No boundary for ${place.name} yet`); hintEl.classList.add('off') } return null }
+    if (seq !== liftSeq) return null // the user has moved on
   }
   hintEl.classList.add('off')
   const g = addGhost(place, anchor, animateLift)
@@ -301,7 +304,7 @@ function bodySizePx(place: Place): number {
 function addGhost(place: Place, anchor?: LonLat, animateLift = true): Ghost {
   const existing = ghosts.find(g => g.place.id === place.id)
   if (existing && !anchor) { selected = existing; showCompare(existing); requestDraw(); return existing }
-  if (ghosts.length >= MAX_GHOSTS) { ghosts.shift(); toast('Three at a time — oldest removed') }
+  if (ghosts.length >= MAX_GHOSTS) { removeGhost(ghosts[0]); toast('Three at a time — oldest removed') }
   const used = new Set(ghosts.map(g => g.color))
   const color = COLORS.find(c => !used.has(c)) ?? COLORS[0]
   const a = anchor ?? place.label
@@ -326,14 +329,16 @@ function setAnchor(g: Ghost, a: LonLat) {
   g.feature = same ? g.place.feature! : { type: 'Feature', properties: {}, geometry: moveGeometry(g.place.feature!.geometry, g.place.label, g.anchor) }
   mark('move', T0)
 }
+function resetHintIfEmpty() { if (!ghosts.length) { hintEl.textContent = 'Tap a country, then drag it'; hintEl.classList.remove('off') } }
 function removeGhost(g: Ghost) {
   g.settled?.(); g.settled = undefined
   ghosts = ghosts.filter(x => x !== g)
+  resetHintIfEmpty()
   if (selected === g) { selected = null; hideCompare() }
   $('#clear').hidden = ghosts.length === 0
   requestDraw(); pushHash()
 }
-function clearGhosts() { for (const g of ghosts) { g.settled?.(); g.settled = undefined } ghosts = []; selected = null; hideCompare(); $('#clear').hidden = true; requestDraw(); pushHash() }
+function clearGhosts() { for (const g of ghosts) { g.settled?.(); g.settled = undefined } ghosts = []; selected = null; resetHintIfEmpty(); hideCompare(); $('#clear').hidden = true; requestDraw(); pushHash() }
 
 /** what the ghost is "over": the place under its anchor at the current level, excluding itself. */
 function under(g: Ghost): Place | null {
@@ -621,7 +626,7 @@ function drawLabels() {
     const min = w / 2 + 6, max = width - w / 2 - 6
     if (x < min) el.style.left = min + 'px'; else if (x > max) el.style.left = max + 'px'
   }
-  if (selected) fillCompare(selected)
+  if (selected) { fillCompare(selected); syncSheetHeight() }
 }
 const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
 
@@ -689,7 +694,13 @@ function setupZoom() {
       return !(geo && ghostAtPoint(geo)) // a press that starts on a ghost is a drag, not a pan
     })
     .on('start', (ev) => { if (ev.sourceEvent) { cancelAnimationFrame(zoomAnim); zoomDone?.(); zoomDone = null } })
-    .on('zoom', (ev) => { transform = ev.transform; requestDraw() })
+    .on('zoom', (ev) => {
+      transform = ev.transform
+      const band = bandFor(transform.k)
+      if (ev.sourceEvent) { if (levelOverride && band !== overrideBand) levelOverride = null } // the user zoomed into another band: follow the zoom
+      else overrideBand = band // programmatic camera moves keep the chosen level
+      requestDraw()
+    })
   select(canvas).call(zoomBehavior).on('dblclick.zoom', null)
 }
 
