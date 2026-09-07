@@ -37,7 +37,8 @@
       <div id="labels" class="labels" aria-live="polite"></div>
       <div id="hint" class="hint">Tap a country, then drag it</div>
       <div id="toast" class="toast" hidden></div>
-      <button id="reset" class="icon-btn reset" title="Reset view" aria-label="Reset view" hidden>⟲</button>
+      <button id="reset" class="icon-btn reset" title="Reset view and remove shapes" aria-label="Reset view and remove shapes" hidden>⟲</button>
+      <button id="clear" class="chip ghost-clear float-clear" hidden>Clear shapes</button>
 
       <section class="compare sheet" id="compare" hidden>
         <button class="close" id="compare-close" aria-label="Close">×</button>
@@ -110,7 +111,6 @@
         <button class="chip" data-preset="ak-mx">Alaska → Mexico</button>
         <span class="spacer"></span>
         <button class="chip share" id="share">Copy link</button>
-        <button class="chip ghost-clear" id="clear" hidden>Clear</button>
       </div>
       <p class="fine">
         Boundaries: <a href="https://www.naturalearthdata.com/" target="_blank" rel="noopener">Natural Earth</a>, public domain. Areas are computed from the drawn boundaries on a sphere, so they differ slightly from official figures. Continents follow Natural Earth, with Russia cut at the Urals. City boundaries are OpenStreetMap administrative areas, © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> (ODbL), clipped to the coastline so water inside a boundary is not counted; the label says what each boundary means (city, municipality, province…).

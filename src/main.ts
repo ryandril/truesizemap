@@ -1,5 +1,5 @@
 import {
-  geoMercator, geoEqualEarth, geoPath, geoGraticule10, zoom as d3zoom, zoomIdentity, select, interpolateZoom, easeCubicInOut,
+  geoMercator, geoEqualEarth, geoMercatorRaw, geoEqualEarthRaw, geoProjection, geoPath, geoGraticule10, zoom as d3zoom, zoomIdentity, select, interpolateZoom, easeCubicInOut,
   type GeoProjection, type ZoomTransform, type ZoomBehavior,
 } from 'd3'
 import { loadWorld, loadCity, searchPlaces, type Level, type Place, type World } from './data'
@@ -47,6 +47,7 @@ let projName: ProjName = 'mercator'
 let projection: GeoProjection
 let baseScale = 1
 let baseTranslate: [number, number] = [0, 0]
+let worldY: [number, number] = [0, 1] // top/bottom of the drawn world at k=1, in base px (north/south pan limits)
 let transform: ZoomTransform = zoomIdentity
 let levelOverride: Level | null = null
 let overrideBand = -1
@@ -86,6 +87,15 @@ const maxLat = () => projName === 'mercator' ? 82 : 89
 
 // ------------------------------------------------------------------ projection & sizing
 function makeProjection(): GeoProjection {
+  const p = projectionFor(projName)
+  baseScale = p.scale()
+  baseTranslate = p.translate() as [number, number]
+  const lat = projName === 'mercator' ? 85 : 90
+  worldY = [p([0, lat])![1], p([0, -lat])![1]]
+  return p
+}
+/** A fitted projection for the current viewport (does not touch globals). */
+function projectionFor(projName: ProjName): GeoProjection {
   const p = projName === 'mercator' ? geoMercator() : geoEqualEarth()
   const pad = 8
   const visH = height - insetTop - insetBottom
@@ -106,8 +116,6 @@ function makeProjection(): GeoProjection {
       p.translate([width / 2 - c[0], insetTop + visH / 2 - c[1]])
     }
   }
-  baseScale = p.scale()
-  baseTranslate = p.translate() as [number, number]
   return p
 }
 function applyTransform() {
@@ -164,7 +172,7 @@ function ghostAtPoint(p: LonLat): Ghost | null {
   return null
 }
 function invert(xy: [number, number]): LonLat | null {
-  if (!projection || !world) return null
+  if (!projection || !world || morphing) return null
   const r = projection.invert?.(xy)
   if (!r || !isFinite(r[0]) || !isFinite(r[1])) return null
   if (projName === 'equalearth') { // reject points outside the projected sphere
@@ -276,6 +284,10 @@ function clearGhosts() { ghosts = []; selected = null; hideCompare(); $('#clear'
 /** what the ghost is "over": the place under its anchor at the current level, excluding itself. */
 function under(g: Ghost): Place | null {
   const cur = currentLevel()
+  if (transform.k >= CITY_BORDERS_FROM && g.place.level !== 'continent') { // zoomed into city borders: compare with the city underneath
+    const c = placeAtPoint(g.anchor, 'city')
+    if (c && c.id !== g.place.id) return c
+  }
   const lvl: Level = g.place.level === 'continent' ? 'continent' : cur === 'continent' ? 'continent' : 'country'
   const p = placeAtPoint(g.anchor, lvl)
   return p && p.id === g.place.id ? null : p
@@ -337,6 +349,7 @@ function eachCopy(fn: (dx: number) => void) {
 let base: HTMLCanvasElement | null = null, baseT: ZoomTransform | null = null, baseKey = '', baseTimer = 0
 const baseKeyNow = () => [projName, currentLevel(), isLight() ? 'l' : 'd', width, height, dpr].join('|')
 let citiesLoaded = 0 // bumps when a city boundary arrives, so the cached base re-renders
+let morphing = false
 function renderBase() {
   if (!base) base = document.createElement('canvas')
   if (base.width !== width * dpr || base.height !== height * dpr) { base.width = width * dpr; base.height = height * dpr }
@@ -348,13 +361,14 @@ function renderBase() {
   visibleCities = []
   eachCopy(() => {
     bc.beginPath(); path(sphere); bc.fillStyle = pal.ocean; bc.fill()
-    bc.beginPath(); path(graticule); bc.strokeStyle = pal.grid; bc.lineWidth = 0.6; bc.stroke()
+    if (!morphing) { bc.beginPath(); path(graticule); bc.strokeStyle = pal.grid; bc.lineWidth = 0.6; bc.stroke() }
     bc.beginPath(); for (const f of world.land) path(f)
     bc.fillStyle = pal.land; bc.fill()
     const borders = level === 'continent' ? world.continents : world.countries
     bc.beginPath(); for (const p of borders) if (p.id !== 'US-AK' && p.feature) path(p.feature)
     bc.strokeStyle = level === 'continent' ? pal.borderStrong : pal.border
     bc.lineWidth = level === 'continent' ? 0.9 : 0.6; bc.lineJoin = 'round'; bc.stroke()
+    if (morphing) return // names, cities and fine lines wait for the final frame
     if (level === 'continent') {
       bc.beginPath(); for (const p of world.countries) if (p.id !== 'US-AK' && p.feature) path(p.feature)
       bc.strokeStyle = pal.borderFaint; bc.lineWidth = 0.5; bc.stroke()
@@ -514,7 +528,7 @@ function draw() {
   mark('labels', T2)
   mark('total', T0)
   syncLevelUI()
-  $('#reset').hidden = transform.k === 1 && transform.x === 0 && transform.y === 0
+  $('#reset').hidden = transform.k === 1 && transform.x === 0 && transform.y === 0 && ghosts.length === 0
 }
 
 // Labels are built from Natural Earth names (static, shipped with the site) and always pass through esc().
@@ -542,8 +556,9 @@ function drawLabels() {
 const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
 
 // ------------------------------------------------------------------ compare sheet
-function showCompare(g: Ghost) { selected = g; compareEl.hidden = false; fillCompare(g) }
-function hideCompare() { compareEl.hidden = true; selected = null }
+function showCompare(g: Ghost) { selected = g; compareEl.hidden = false; fillCompare(g); syncSheetHeight() }
+function hideCompare() { compareEl.hidden = true; selected = null; syncSheetHeight() }
+function syncSheetHeight() { app.style.setProperty('--sheet-h', compareEl.hidden ? '0px' : compareEl.offsetHeight + 10 + 'px') }
 function fillCompare(g: Ghost) {
   const u = under(g)
   $('#cmp-a-name').textContent = g.place.name
@@ -574,6 +589,16 @@ let pressXY: [number, number] | null = null
 function setupZoom() {
   zoomBehavior = d3zoom<HTMLCanvasElement, unknown>()
     .scaleExtent([1, MAX_ZOOM])
+    // north/south: never pan past the map's top or bottom edge; east/west stays endless (the world wraps)
+    .constrain((t) => {
+      const visTop = insetTop, visBot = height - insetBottom
+      const top = t.k * worldY[0] + t.y, bot = t.k * worldY[1] + t.y
+      let y = t.y
+      if (bot - top <= visBot - visTop) y = (visTop + visBot) / 2 - t.k * (worldY[0] + worldY[1]) / 2 // world shorter than the view: centre it
+      else if (top > visTop) y = visTop - t.k * worldY[0]
+      else if (bot < visBot) y = visBot - t.k * worldY[1]
+      return y === t.y ? t : zoomIdentity.translate(t.x, y).scale(t.k)
+    })
     .filter((ev: Event) => {
       const e = ev as PointerEvent | WheelEvent | TouchEvent
       if ('touches' in e && e.touches.length > 1) return true // pinch always zooms
@@ -696,17 +721,53 @@ labelsEl.addEventListener('click', (e) => {
 
 // ------------------------------------------------------------------ UI: projection, level, presets, search, share
 document.querySelectorAll<HTMLButtonElement>('[data-proj]').forEach(b => b.addEventListener('click', () => setProjection(b.dataset.proj as ProjName)))
-function setProjection(p: ProjName) {
-  if (p === projName) return
+function setProjection(p: ProjName, animate = true) {
+  if (p === projName || morphing) return
+  const from = projName
   projName = p
   document.querySelectorAll<HTMLButtonElement>('[data-proj]').forEach(x => { const on = x.dataset.proj === p; x.classList.toggle('on', on); x.setAttribute('aria-checked', String(on)) })
   transform = zoomIdentity; select(canvas).call(zoomBehavior.transform, zoomIdentity)
-  projection = makeProjection()
-  for (const g of ghosts) setAnchor(g, g.anchor)
-  requestDraw(); pushHash()
+  if (!animate || reducedMotion() || !world) {
+    projection = makeProjection()
+    for (const g of ghosts) setAnchor(g, g.anchor)
+    requestDraw(); pushHash(); return
+  }
+  morphProjection(from, p)
+  pushHash()
 }
+
+/** Blend the two projections' raw formulas over ~1s so the map visibly stretches/relaxes into the new shape. */
+function morphProjection(from: ProjName, to: ProjName) {
+  const A = projectionFor(from), B = projectionFor(to)
+  const s0 = A.scale(), s1 = B.scale(), t0 = A.translate(), t1 = B.translate()
+  const rawOf = (n: ProjName) => n === 'mercator'
+    ? (λ: number, φ: number) => geoMercatorRaw(λ, Math.max(-1.4835, Math.min(1.4835, φ))) // clamp at ±85° like the clipped square
+    : (λ: number, φ: number) => geoEqualEarthRaw(λ, φ)
+  const ra = rawOf(from), rb = rawOf(to)
+  const T0 = performance.now(), ms = 1100
+  const maxLatEnd = to === 'mercator' ? 82 : 89
+  morphing = true
+  const frame = (u: number) => {
+    const raw = (λ: number, φ: number) => { const a = ra(λ, φ), b = rb(λ, φ); return [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u] as [number, number] }
+    const pr = geoProjection(raw).scale(s0 + (s1 - s0) * u).translate([t0[0] + (t1[0] - t0[0]) * u, t0[1] + (t1[1] - t0[1]) * u]).precision(0.5)
+    projection = pr
+    baseScale = pr.scale(); baseTranslate = pr.translate() as [number, number]
+    for (const g of ghosts) { g.anchor[1] = Math.max(-maxLatEnd, Math.min(maxLatEnd, g.anchor[1])); setAnchor(g, g.anchor) }
+    baseKey = '' // force a (lite) base render this frame
+    draw()
+  }
+  const finish = () => { morphing = false; projection = makeProjection(); baseKey = ''; requestDraw() }
+  morphDebug = { frame, finish }
+  const step = (now: number) => {
+    const u = easeCubicInOut(Math.min(1, (now - T0) / ms))
+    frame(u)
+    if (u < 1) requestAnimationFrame(step); else finish()
+  }
+  requestAnimationFrame(step)
+}
+let morphDebug: { frame: (u: number) => void; finish: () => void } | null = null
 document.querySelectorAll<HTMLButtonElement>('[data-level]').forEach(b => b.addEventListener('click', () => { if (!b.disabled) setLevel(b.dataset.level as Level) }))
-$('#reset').addEventListener('click', () => animateZoom(zoomIdentity, 500))
+$('#reset').addEventListener('click', () => { clearGhosts(); animateZoom(zoomIdentity, 500) })
 $('#clear').addEventListener('click', clearGhosts)
 
 const PRESETS: Record<string, { src: string; dst: string; level: Level }> = {
@@ -806,7 +867,7 @@ function pushHash() {
 function readHash() {
   const h = new URLSearchParams(location.hash.slice(1))
   suppressHash = true
-  if (h.get('m') === 'e') setProjection('equalearth')
+  if (h.get('m') === 'e') setProjection('equalearth', false)
   const l = h.get('l'); if (l === 'country' || l === 'continent' || l === 'city') setLevel(l)
   const g = h.get('g')
   const pending: Promise<unknown>[] = []
@@ -840,5 +901,5 @@ async function boot() {
   requestDraw()
 }
 // debug hook, dev only
-if (import.meta.env.DEV) (window as unknown as { __tsm: unknown }).__tsm = { project: (ll: LonLat) => projection(ll), get pal() { return pal }, get ghosts() { return ghosts }, stats, get transform() { return transform }, get baseT() { return baseT }, get baseKey() { return baseKey }, baseKeyNow, get baseTimer() { return baseTimer }, renderBase, draw, get base() { return base }, get visibleCities() { return visibleCities.map(v => ({ n: v.c.name, loaded: !!v.c.feature })) }, get citiesLoaded() { return citiesLoaded }, get lastZoom() { return lastZoom }, setView: (k: number, lon: number, lat: number) => { const b = projection; applyTransform(); const base = (() => { const t = transform; const p = b([lon, lat])!; return [(p[0] - t.x) / t.k, (p[1] - t.y) / t.k] })(); const visH = height - insetTop - insetBottom; select(canvas).call(zoomBehavior.transform, zoomIdentity.translate(width / 2 - k * base[0], insetTop + visH / 2 - k * base[1]).scale(k)) } }
+if (import.meta.env.DEV) (window as unknown as { __tsm: unknown }).__tsm = { project: (ll: LonLat) => projection(ll), get pal() { return pal }, get ghosts() { return ghosts }, stats, get transform() { return transform }, get baseT() { return baseT }, get baseKey() { return baseKey }, baseKeyNow, get baseTimer() { return baseTimer }, renderBase, draw, get base() { return base }, get visibleCities() { return visibleCities.map(v => ({ n: v.c.name, loaded: !!v.c.feature })) }, get citiesLoaded() { return citiesLoaded }, setProjection, get morph() { return morphDebug }, get morphing() { return morphing }, get lastZoom() { return lastZoom }, setView: (k: number, lon: number, lat: number) => { const b = projection; applyTransform(); const base = (() => { const t = transform; const p = b([lon, lat])!; return [(p[0] - t.x) / t.k, (p[1] - t.y) / t.k] })(); const visH = height - insetTop - insetBottom; select(canvas).call(zoomBehavior.transform, zoomIdentity.translate(width / 2 - k * base[0], insetTop + visH / 2 - k * base[1]).scale(k)) } }
 boot().catch(err => { hintEl.textContent = 'Could not load map data'; console.error(err) })
