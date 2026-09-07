@@ -54,7 +54,7 @@
   --line-soft: #E6E6EA;
   --ink: #1D1D1F;
   --ink-dim: #55555B;
-  --ink-faint: #86868B;
+  --ink-faint: #6E6E73;
   --gold: #B8741A;
   --gold-deep: #9A5E10;
   --glass: rgba(245, 245, 247, 0.74);
@@ -203,6 +203,16 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
   .controls { padding-left: 24px; padding-right: 24px; }
   .seg { font-size: 12px; padding: 8px 14px; }
   .fine { font-size: 11px; }
+}
+
+/* touch screens: 44px-class targets for the controls people tap most */
+@media (pointer: coarse) {
+  .seg { padding: 11px 13px; font-size: 12px; }
+  .chip { padding: 10px 13px; font-size: 12px; }
+  .btn { padding: 9px 12px; font-size: 12px; }
+  .icon-btn { width: 40px; height: 40px; }
+  #search { height: 42px; font-size: 13.5px; }
+  .compare .close, .why-card .close { width: 40px; height: 40px; }
 }
 
 /* ---------- accessibility preferences ---------- */

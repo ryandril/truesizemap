@@ -21,7 +21,7 @@ interface Ghost {
 
 const COLORS = ['#E8A33D', '#2FA39A', '#E26D5A']
 const MAX_GHOSTS = 3
-const ZOOM_BANDS: { max: number; level: Level }[] = [{ max: 1.8, level: 'continent' }, { max: 6, level: 'country' }, { max: Infinity, level: 'city' }]
+const ZOOM_BANDS: { max: number; level: Level }[] = [{ max: 6, level: 'country' }, { max: Infinity, level: 'city' }] // Continent only via the tab
 const CITY_NAMES_FROM = 2.2     // zoom from which city names appear
 const CITY_BORDERS_FROM = 7     // zoom from which city boundaries are drawn (fetched lazily)
 const CITY_TAP_PX = 18
@@ -146,9 +146,11 @@ function currentLevel(): Level {
   return levelOverride ?? ZOOM_BANDS[bandFor(transform.k)].level
 }
 function setLevel(l: Level) { levelOverride = l; overrideBand = bandFor(transform.k); syncLevelUI(); requestDraw() }
+let hintLevel: Level | null = null
 function syncLevelUI() {
   const l = currentLevel()
   if (world) renderPresets()
+  if (world && !ghosts.length && l !== hintLevel && !hintEl.textContent.startsWith('Loading')) { hintLevel = l; hintEl.textContent = HINT[l]; hintEl.classList.remove('off') }
   document.querySelectorAll<HTMLButtonElement>('[data-level]').forEach(b => {
     const on = b.dataset.level === l
     b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on))
@@ -329,7 +331,8 @@ function setAnchor(g: Ghost, a: LonLat) {
   g.feature = same ? g.place.feature! : { type: 'Feature', properties: {}, geometry: moveGeometry(g.place.feature!.geometry, g.place.label, g.anchor) }
   mark('move', T0)
 }
-function resetHintIfEmpty() { if (!ghosts.length) { hintEl.textContent = 'Tap a country, then drag it'; hintEl.classList.remove('off') } }
+const HINT: Record<Level, string> = { continent: 'Tap a continent, then drag it', country: 'Tap a country, then drag it', city: 'Tap a city name or search one' }
+function resetHintIfEmpty() { if (!ghosts.length) { hintEl.textContent = HINT[currentLevel()]; hintEl.classList.remove('off') } }
 function removeGhost(g: Ghost) {
   g.settled?.(); g.settled = undefined
   ghosts = ghosts.filter(x => x !== g)
@@ -1061,7 +1064,7 @@ async function boot() {
   setupZoom()
   resize()
   readHash()
-  hintEl.textContent = ghosts.length ? 'Drag it · flick it · tap to compare' : 'Tap a country, then drag it'
+  hintEl.textContent = ghosts.length ? 'Drag it · flick it · tap to compare' : HINT[currentLevel()]
   maybeShowWhy()
   setTimeout(() => { void loadWorldLite().then(f => { liteLand = f }) }, 1500)
   new ResizeObserver(() => resize()).observe(stage)
