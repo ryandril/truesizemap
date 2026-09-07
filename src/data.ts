@@ -15,6 +15,8 @@ export interface Place {
   areaKm2: number
   centroid: LonLat
   bounds: Bounds
+  /** where the name is drawn on the map (Natural Earth LABEL_X/Y, hand-set for continents) */
+  label: LonLat
 }
 
 export interface World {
@@ -24,7 +26,7 @@ export interface World {
   land: PolyFeature[] // what to draw as land = countries
 }
 
-interface Props { n: string; c: string | null; t: string }
+interface Props { n: string; c: string | null; t: string; lx: number; ly: number }
 
 const DEF: Record<string, string> = {
   'Sovereign country': 'sovereign state',
@@ -56,6 +58,7 @@ export async function loadWorld(url = worldUrl): Promise<World> {
           areaKm2: areaKm2(f),
           centroid: centroid(f),
           bounds: bounds(f),
+          label: [p.lx, p.ly],
         }
       })
   }

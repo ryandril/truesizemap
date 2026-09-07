@@ -35,6 +35,9 @@
   --map-hover: rgba(233,228,216,0.10);
   --map-hover-line: rgba(233,228,216,0.5);
   --map-outline: rgba(233,228,216,0.25);
+  --map-label: rgba(233,228,216,0.82);
+  --map-label-dim: rgba(233,228,216,0.34);
+  --map-halo: rgba(13,17,25,0.85);
   --on-accent: #1A1204;
   color-scheme: dark;
 }
@@ -64,6 +67,9 @@
   --map-hover: rgba(184,116,26,0.14);
   --map-hover-line: rgba(29,29,31,0.6);
   --map-outline: rgba(29,29,31,0.3);
+  --map-label: rgba(60,60,67,0.88);
+  --map-label-dim: rgba(60,60,67,0.42);
+  --map-halo: rgba(255,255,255,0.9);
   --on-accent: #FFFFFF;
   color-scheme: light;
 }

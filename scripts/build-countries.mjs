@@ -67,7 +67,7 @@ for (const f of countriesRaw.features) {
   const p = f.properties
   countries.push({
     type: 'Feature', id: p.ADM0_A3,
-    properties: { n: p.NAME, c: CONTINENT_IDS[p.CONTINENT] ?? null, t: p.TYPE },
+    properties: { n: p.NAME, c: CONTINENT_IDS[p.CONTINENT] ?? null, t: p.TYPE, lx: +p.LABEL_X.toFixed(2), ly: +p.LABEL_Y.toFixed(2) },
     geometry: f.geometry,
   })
   if (p.CONTINENT === 'Seven seas (open ocean)') continue
@@ -83,7 +83,7 @@ for (const f of countriesRaw.features) {
 }
 countries.push({
   type: 'Feature', id: 'US-AK',
-  properties: { n: 'Alaska', c: 'NA', t: 'US state' },
+  properties: { n: 'Alaska', c: 'NA', t: 'US state', lx: -152.5, ly: 64.5 },
   geometry: alaska.geometry,
 })
 
@@ -94,11 +94,17 @@ const partsTopo = topoServer.topology({
     features: parts.map((p, i) => ({ type: 'Feature', id: i, properties: { c: p.continent }, geometry: { type: 'Polygon', coordinates: p.ring } })),
   },
 }, 1e6)
+// hand-placed continent label anchors (lon, lat) — spherical centroids land in oceans or on the wrong side
+const CONTINENT_LABEL = {
+  Africa: [17, 6], Asia: [88, 46], Europe: [18, 54], 'North America': [-98, 47],
+  'South America': [-59, -13], Oceania: [134, -25], Antarctica: [20, -78],
+}
 const continents = []
 for (const [name, id] of Object.entries(CONTINENT_IDS)) {
   const geoms = partsTopo.objects.parts.geometries.filter(g => g.properties.c === name)
   const merged = topoClient.merge(partsTopo, geoms)
-  continents.push({ type: 'Feature', id, properties: { n: name, c: id, t: 'Continent' }, geometry: merged })
+  const [lx, ly] = CONTINENT_LABEL[name]
+  continents.push({ type: 'Feature', id, properties: { n: name, c: id, t: 'Continent', lx, ly }, geometry: merged })
 }
 
 // ---------- final topology, simplified + quantized ----------

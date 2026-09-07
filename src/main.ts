@@ -60,13 +60,14 @@ const graticule = geoGraticule10()
 const sphere = { type: 'Sphere' } as const
 
 // map palette comes from the stylesheet so light/dark stay in one place
-type Pal = Record<'ocean' | 'land' | 'grid' | 'border' | 'borderStrong' | 'borderFaint' | 'hover' | 'hoverLine' | 'outline' | 'accent', string>
+type Pal = Record<'ocean' | 'land' | 'grid' | 'border' | 'borderStrong' | 'borderFaint' | 'hover' | 'hoverLine' | 'outline' | 'accent' | 'label' | 'labelDim' | 'halo', string>
 let pal: Pal
 function readPalette() {
   const cs = getComputedStyle(document.documentElement)
   const v = (n: string) => cs.getPropertyValue(n).trim()
   pal = { ocean: v('--map-ocean'), land: v('--map-land'), grid: v('--map-grid'), border: v('--map-border'), borderStrong: v('--map-border-strong'),
-    borderFaint: v('--map-border-faint'), hover: v('--map-hover'), hoverLine: v('--map-hover-line'), outline: v('--map-outline'), accent: v('--gold') }
+    borderFaint: v('--map-border-faint'), hover: v('--map-hover'), hoverLine: v('--map-hover-line'), outline: v('--map-outline'), accent: v('--gold'),
+    label: v('--map-label'), labelDim: v('--map-label-dim'), halo: v('--map-halo') }
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', v('--bg'))
 }
 function isLight() { return getComputedStyle(document.documentElement).colorScheme.includes('light') }
@@ -182,10 +183,12 @@ function addGhost(place: Place, anchor?: LonLat, animateLift = true): Ghost {
   return g
 }
 function setAnchor(g: Ghost, a: LonLat) {
+  const T0 = performance.now()
   const cap = maxLat() + 3 // rubber-band headroom
   g.anchor = [((a[0] + 540) % 360) - 180, Math.max(-cap, Math.min(cap, a[1]))]
   const same = Math.abs(g.anchor[0] - g.place.centroid[0]) < 1e-6 && Math.abs(g.anchor[1] - g.place.centroid[1]) < 1e-6
   g.feature = same ? g.place.feature : { type: 'Feature', properties: {}, geometry: moveGeometry(g.place.feature.geometry, g.place.centroid, g.anchor) }
+  mark('move', T0)
 }
 function removeGhost(g: Ghost) {
   ghosts = ghosts.filter(x => x !== g)
@@ -216,11 +219,12 @@ function glideTo(g: Ghost, to: LonLat): Promise<void> {
 let animating = false, lastT = 0
 function kick() { if (!animating) { animating = true; lastT = performance.now(); requestAnimationFrame(tick) } }
 function tick(t: number) {
-  const dt = Math.max(0, (t - lastT) / 1000); lastT = t
+  const dt = Math.min(0.25, Math.max(0, (t - lastT) / 1000)); lastT = t
+  const n = Math.max(1, Math.ceil(dt / (1 / 60))), h = dt / n // sub-step so a slow frame still advances real time
   let busy = false
   for (const g of ghosts) {
     const moving = !g.sx.done || !g.sy.done
-    g.sx.step(dt, 5e-3); g.sy.step(dt, 5e-3); g.lift.step(dt, 2e-3)
+    for (let i = 0; i < n; i++) { g.sx.step(h, 5e-3); g.sy.step(h, 5e-3); g.lift.step(h, 2e-3) }
     if (moving) {
       setAnchor(g, [g.sx.x, g.sy.x])
       if (g.sx.done && g.sy.done) { pushHash(); g.settled?.(); g.settled = undefined }
@@ -233,27 +237,110 @@ function tick(t: number) {
 
 // ------------------------------------------------------------------ drawing
 function requestDraw() { if (!frame) frame = requestAnimationFrame(draw) }
+const stats: Record<string, number> = {}
+const mark = (k: string, t0: number) => { stats[k] = (stats[k] ?? 0) * 0.5 + (performance.now() - t0) * 0.5 }
+// The base map (sphere, graticule, land, borders) costs ~130 ms to project at desktop size, so it is
+// rendered once to an offscreen canvas and blitted; ghosts and highlights draw on top every frame.
+// While zooming, the cached bitmap is shown re-scaled as a preview and re-rendered once the gesture pauses.
+let base: HTMLCanvasElement | null = null, baseT: ZoomTransform | null = null, baseKey = '', baseTimer = 0
+const baseKeyNow = () => [projName, currentLevel(), isLight() ? 'l' : 'd', width, height, dpr].join('|')
+function renderBase() {
+  if (!base) base = document.createElement('canvas')
+  if (base.width !== width * dpr || base.height !== height * dpr) { base.width = width * dpr; base.height = height * dpr }
+  const bc = base.getContext('2d')!
+  const path = geoPath(projection, bc)
+  bc.setTransform(dpr, 0, 0, dpr, 0, 0)
+  bc.clearRect(0, 0, width, height)
+  bc.beginPath(); path(sphere); bc.fillStyle = pal.ocean; bc.fill()
+  bc.beginPath(); path(graticule); bc.strokeStyle = pal.grid; bc.lineWidth = 0.6; bc.stroke()
+  const level = currentLevel()
+  bc.beginPath(); for (const f of world.land) path(f)
+  bc.fillStyle = pal.land; bc.fill()
+  bc.beginPath(); for (const p of placesAt(level)) if (p.id !== 'US-AK') path(p.feature)
+  bc.strokeStyle = level === 'continent' ? pal.borderStrong : pal.border
+  bc.lineWidth = level === 'continent' ? 0.9 : 0.6; bc.lineJoin = 'round'; bc.stroke()
+  if (level === 'continent') {
+    bc.beginPath(); for (const p of world.countries) if (p.id !== 'US-AK') path(p.feature)
+    bc.strokeStyle = pal.borderFaint; bc.lineWidth = 0.5; bc.stroke()
+  }
+  drawNames(bc)
+  if (projName === 'equalearth') { bc.beginPath(); path(sphere); bc.strokeStyle = pal.outline; bc.lineWidth = 1; bc.stroke() }
+  baseT = transform; baseKey = baseKeyNow()
+}
+
+// Place names, Google-Maps style: always on, sized by zoom, a country is named only once it is wide
+// enough on screen to carry its own name, bigger places win collisions.
+const UI_FONT = '-apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", Roboto, sans-serif'
+let countriesByArea: Place[] = []
+function drawNames(bc: CanvasRenderingContext2D) {
+  const k = transform.k
+  const placed: [number, number, number, number][] = []
+  const fits = (r: [number, number, number, number]) => !placed.some(o => r[0] < o[2] && r[2] > o[0] && r[1] < o[3] && r[3] > o[1])
+  const onScreen = (x: number, y: number) => x > 0 && x < width && y > insetTop && y < height - insetBottom
+  bc.textAlign = 'center'; bc.textBaseline = 'middle'; bc.lineJoin = 'round'
+  const halo = (t: string, x: number, y: number, w: number) => { bc.lineWidth = w; bc.strokeStyle = pal.halo; bc.strokeText(t, x, y) }
+  const ls = bc as CanvasRenderingContext2D & { letterSpacing?: string }
+
+  if (k < 3.2) { // continents: quiet uppercase, fading out as you zoom in
+    const fs = Math.round(Math.min(18, 12 + 3 * Math.log2(Math.max(1, width / 600))))
+    bc.font = `600 ${fs}px ${UI_FONT}`
+    if ('letterSpacing' in ls) ls.letterSpacing = '0.14em'
+    for (const c of world.continents) {
+      const xy = projection(c.label); if (!xy || !onScreen(xy[0], xy[1])) continue
+      const t = c.name.toUpperCase(); const tw = bc.measureText(t).width
+      const r: [number, number, number, number] = [xy[0] - tw / 2 - 4, xy[1] - fs, xy[0] + tw / 2 + 4, xy[1] + fs]
+      if (!fits(r)) continue
+      bc.fillStyle = pal.labelDim; halo(t, xy[0], xy[1], 3); bc.fillText(t, xy[0], xy[1]); placed.push(r)
+    }
+    if ('letterSpacing' in ls) ls.letterSpacing = '0px'
+  }
+
+  const fs = Math.min(15, 10.5 + 1.6 * Math.log2(k))
+  bc.font = `500 ${fs}px ${UI_FONT}`
+  bc.fillStyle = pal.label
+  for (const p of countriesByArea) {
+    if (p.id === 'US-AK') continue
+    if (p.areaKm2 * k * k < 12000) continue // scattered island groups have wide boxes but no room for a name
+    const xy = projection(p.label); if (!xy || !onScreen(xy[0], xy[1])) continue
+    // how much room does the country take on screen right now?
+    let bw: number, bh: number
+    if (p.bounds.wraps) { if (p.areaKm2 < 1e6) continue; bw = width; bh = height }
+    else {
+      const a = projection([p.bounds.minLon, p.bounds.minLat]), b = projection([p.bounds.maxLon, p.bounds.maxLat])
+      if (!a || !b) continue
+      bw = Math.abs(b[0] - a[0]); bh = Math.abs(b[1] - a[1])
+    }
+    const tw = bc.measureText(p.name).width
+    if (bw < tw * 0.85 || bh < fs * 1.2) continue // not wide enough to carry its name yet
+    const r: [number, number, number, number] = [xy[0] - tw / 2 - 3, xy[1] - fs * 0.7, xy[0] + tw / 2 + 3, xy[1] + fs * 0.7]
+    if (!fits(r)) continue
+    halo(p.name, xy[0], xy[1], 3); bc.fillText(p.name, xy[0], xy[1]); placed.push(r)
+  }
+}
 function draw() {
   frame = 0
   if (!world) return
+  const T0 = performance.now()
   applyTransform()
   const path = geoPath(projection, ctx)
   ctx.save(); ctx.scale(dpr, dpr)
   ctx.clearRect(0, 0, width, height)
 
-  ctx.beginPath(); path(sphere); ctx.fillStyle = pal.ocean; ctx.fill()
-  ctx.beginPath(); path(graticule); ctx.strokeStyle = pal.grid; ctx.lineWidth = 0.6; ctx.stroke()
-
-  const level = currentLevel()
-  ctx.beginPath(); for (const f of world.land) path(f)
-  ctx.fillStyle = pal.land; ctx.fill()
-  ctx.beginPath(); for (const p of placesAt(level)) if (p.id !== 'US-AK') path(p.feature)
-  ctx.strokeStyle = level === 'continent' ? pal.borderStrong : pal.border
-  ctx.lineWidth = level === 'continent' ? 0.9 : 0.6; ctx.lineJoin = 'round'; ctx.stroke()
-  if (level === 'continent') {
-    ctx.beginPath(); for (const p of world.countries) if (p.id !== 'US-AK') path(p.feature)
-    ctx.strokeStyle = pal.borderFaint; ctx.lineWidth = 0.5; ctx.stroke()
+  const sameT = !!baseT && baseT.k === transform.k && baseT.x === transform.x && baseT.y === transform.y
+  if (!base || baseKey !== baseKeyNow()) renderBase()
+  else if (!sameT) {
+    clearTimeout(baseTimer)
+    baseTimer = window.setTimeout(() => { baseTimer = 0; renderBase(); requestDraw() }, 90)
   }
+  if (baseT && !(baseT.k === transform.k && baseT.x === transform.x && baseT.y === transform.y)) {
+    // preview: re-scale the cached bitmap into the new transform
+    const s = transform.k / baseT.k
+    ctx.save(); ctx.fillStyle = pal.ocean
+    ctx.translate(transform.x - s * baseT.x, transform.y - s * baseT.y); ctx.scale(s, s)
+    ctx.drawImage(base!, 0, 0, width, height); ctx.restore()
+  } else ctx.drawImage(base!, 0, 0, width, height)
+  mark('base', T0)
+  const T1 = performance.now()
   // press (instant, on pointer-down) and hover feedback
   const hl = pressPlace ?? hoverPlace
   if (hl) {
@@ -265,20 +352,27 @@ function draw() {
   for (const g of ghosts) { ctx.beginPath(); path(g.place.feature); ctx.setLineDash([3, 3]); ctx.strokeStyle = g.color + '99'; ctx.lineWidth = 1; ctx.stroke(); ctx.setLineDash([]) }
   // ghosts: lift → shadow + brightness, so a lifted shape reads as floating above the map
   for (const g of ghosts) {
+    // lift → a cheap two-layer drop shadow (canvas shadowBlur on a continent-sized path costs ~500 ms/frame)
     const L = Math.max(0, g.lift.x)
-    ctx.save()
-    ctx.shadowColor = 'rgba(0,0,0,' + ((isLight() ? 0.28 : 0.55) * Math.min(1, L)).toFixed(3) + ')'
-    ctx.shadowBlur = 18 * L; ctx.shadowOffsetY = 6 * L
+    if (L > 0.02) {
+      const sh = isLight() ? 0.22 : 0.45
+      for (const [dy, a] of [[4 * L, sh * 0.6], [9 * L, sh * 0.35]] as [number, number][]) {
+        ctx.save(); ctx.translate(0, dy)
+        ctx.beginPath(); path(g.feature); ctx.fillStyle = `rgba(0,0,0,${a.toFixed(3)})`; ctx.fill()
+        ctx.restore()
+      }
+    }
     ctx.beginPath(); path(g.feature)
     ctx.fillStyle = g.color + (g === selected ? 'B3' : '8C'); ctx.fill()
-    ctx.restore()
     ctx.beginPath(); path(g.feature)
     ctx.strokeStyle = g.color; ctx.lineWidth = g === selected ? 2 : 1.4; ctx.stroke()
   }
-  if (projName === 'equalearth') { ctx.beginPath(); path(sphere); ctx.strokeStyle = pal.outline; ctx.lineWidth = 1; ctx.stroke() }
   ctx.restore()
-
+  mark('ghosts', T1)
+  const T2 = performance.now()
   drawLabels()
+  mark('labels', T2)
+  mark('total', T0)
   syncLevelUI()
   $('#reset').hidden = transform.k === 1 && transform.x === 0 && transform.y === 0
 }
@@ -560,6 +654,7 @@ async function boot() {
   readPalette(); $('#theme').textContent = isLight() ? '☾' : '☀'
   measureChrome()
   world = await loadWorld()
+  countriesByArea = [...world.countries].sort((a, b) => b.areaKm2 - a.areaKm2)
   setupZoom()
   resize()
   readHash()
@@ -570,5 +665,5 @@ async function boot() {
   requestDraw()
 }
 // debug hook, dev only
-if (import.meta.env.DEV) (window as unknown as { __tsm: unknown }).__tsm = { project: (ll: LonLat) => projection(ll), get pal() { return pal }, get ghosts() { return ghosts } }
+if (import.meta.env.DEV) (window as unknown as { __tsm: unknown }).__tsm = { project: (ll: LonLat) => projection(ll), get pal() { return pal }, get ghosts() { return ghosts }, stats }
 boot().catch(err => { hintEl.textContent = 'Could not load map data'; console.error(err) })
