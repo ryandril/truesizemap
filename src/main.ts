@@ -1,5 +1,5 @@
 import {
-  geoMercator, geoEqualEarth, geoPath, geoGraticule10, zoom as d3zoom, zoomIdentity, select, pointer, interpolateZoom, easeCubicInOut,
+  geoMercator, geoEqualEarth, geoPath, geoGraticule10, zoom as d3zoom, zoomIdentity, select, interpolateZoom, easeCubicInOut,
   type GeoProjection, type ZoomTransform, type ZoomBehavior,
 } from 'd3'
 import { loadWorld, loadCity, searchPlaces, type Level, type Place, type World } from './data'
@@ -22,8 +22,10 @@ interface Ghost {
 const COLORS = ['#E8A33D', '#2FA39A', '#E26D5A']
 const MAX_GHOSTS = 3
 const ZOOM_BANDS: { max: number; level: Level }[] = [{ max: 1.8, level: 'continent' }, { max: 6, level: 'country' }, { max: Infinity, level: 'city' }]
-const CITY_DOTS_FROM = 2.2      // zoom from which city dots appear
-const CITY_TAP_PX = 14
+const CITY_NAMES_FROM = 2.2     // zoom from which city names appear
+const CITY_BORDERS_FROM = 7     // zoom from which city boundaries are drawn (fetched lazily)
+const CITY_TAP_PX = 18
+const MAX_ZOOM = 500
 const FLICK_MIN = 12          // deg/s below which a release just settles
 const DECEL = 0.995           // momentum projection rate (snappier than scroll's 0.998 — the map is small)
 
@@ -62,14 +64,14 @@ const graticule = geoGraticule10()
 const sphere = { type: 'Sphere' } as const
 
 // map palette comes from the stylesheet so light/dark stay in one place
-type Pal = Record<'ocean' | 'land' | 'grid' | 'border' | 'borderStrong' | 'borderFaint' | 'hover' | 'hoverLine' | 'outline' | 'accent' | 'label' | 'labelDim' | 'halo', string>
+type Pal = Record<'ocean' | 'land' | 'grid' | 'border' | 'borderStrong' | 'borderFaint' | 'hover' | 'hoverLine' | 'outline' | 'accent' | 'label' | 'labelDim' | 'halo' | 'cityFill' | 'cityLine', string>
 let pal: Pal
 function readPalette() {
   const cs = getComputedStyle(document.documentElement)
   const v = (n: string) => cs.getPropertyValue(n).trim()
   pal = { ocean: v('--map-ocean'), land: v('--map-land'), grid: v('--map-grid'), border: v('--map-border'), borderStrong: v('--map-border-strong'),
     borderFaint: v('--map-border-faint'), hover: v('--map-hover'), hoverLine: v('--map-hover-line'), outline: v('--map-outline'), accent: v('--gold'),
-    label: v('--map-label'), labelDim: v('--map-label-dim'), halo: v('--map-halo') }
+    label: v('--map-label'), labelDim: v('--map-label-dim'), halo: v('--map-halo'), cityFill: v('--map-city-fill'), cityLine: v('--map-city-line') }
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', v('--bg'))
 }
 function isLight() { return getComputedStyle(document.documentElement).colorScheme.includes('light') }
@@ -88,12 +90,21 @@ function makeProjection(): GeoProjection {
   const pad = 8
   const visH = height - insetTop - insetBottom
   p.fitExtent([[pad, insetTop + pad], [width - pad, height - insetBottom - pad]], sphere)
-  if (projName === 'mercator' && width > visH) {
-    // landscape: fill the width, let the poles run off (they are ice anyway); centre ~12°N in the visible band
-    p.scale((width - 2 * pad) / (2 * Math.PI))
-    p.translate([width / 2, 0])
-    const y = p([0, 12])![1]
-    p.translate([width / 2, insetTop + visH / 2 - y])
+  if (projName === 'mercator') {
+    if (width > visH) {
+      // landscape: fill the width, let the poles run off (they are ice anyway); centre ~12°N in the visible band
+      p.scale((width - 2 * pad) / (2 * Math.PI))
+      p.translate([width / 2, 0])
+      const y = p([0, 12])![1]
+      p.translate([width / 2, insetTop + visH / 2 - y])
+    } else {
+      // portrait (phones): fill the height instead of leaving empty bands; centre on 10°E / 15°N so Greenland,
+      // Europe, Africa and the Americas are all in the first view — the user pans for the rest
+      p.scale((visH - 2 * pad) / (2 * Math.PI) * 1.15)
+      p.translate([0, 0])
+      const c = p([10, 15])!
+      p.translate([width / 2 - c[0], insetTop + visH / 2 - c[1]])
+    }
   }
   baseScale = p.scale()
   baseTranslate = p.translate() as [number, number]
@@ -137,7 +148,7 @@ function syncLevelUI() {
     b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on))
   })
 }
-function placesAt(level: Level): Place[] { return level === 'continent' ? world.continents : level === 'country' ? world.countries : [] }
+function placesAt(level: Level): Place[] { return level === 'continent' ? world.continents : level === 'country' ? world.countries : world.cities.filter(c => !!c.feature) }
 
 // ------------------------------------------------------------------ hit testing
 function placeAtPoint(p: LonLat, level: Level): Place | null {
@@ -160,7 +171,7 @@ function invert(xy: [number, number]): LonLat | null {
     const back = projection([r[0], r[1]])
     if (!back || Math.hypot(back[0] - xy[0], back[1] - xy[1]) > 1) return null
   }
-  return [r[0], r[1]]
+  return [((r[0] + 540) % 360) - 180, r[1]]
 }
 
 /** city dots drawn in the last base render, in screen px */
@@ -194,7 +205,7 @@ function zoomToSee(g: Ghost) {
   if (size >= 28) return
   const visH = height - insetTop - insetBottom
   const want = Math.min(width, visH) * 0.22
-  const k = Math.max(1, Math.min(60, transform.k * (want / Math.max(size, 1))))
+  const k = Math.max(1, Math.min(MAX_ZOOM, transform.k * (want / Math.max(size, 1))))
   if (!isFinite(k)) return
   // centre the ghost's anchor in the visible band at the new scale. Screen = k·base + t, so t = centre − k·base
   const p = projection(g.anchor); if (!p) return
@@ -304,11 +315,28 @@ function tick(t: number) {
 function requestDraw() { if (!frame) frame = requestAnimationFrame(draw) }
 const stats: Record<string, number> = {}
 const mark = (k: string, t0: number) => { stats[k] = (stats[k] ?? 0) * 0.5 + (performance.now() - t0) * 0.5 }
+/** Mercator wraps: the x-offsets (in px) of every copy of the world that touches the viewport. */
+function worldCopies(): number[] {
+  if (projName !== 'mercator') return [0]
+  const w = 2 * Math.PI * projection.scale()
+  const tx = projection.translate()[0]
+  const out: number[] = []
+  for (let n = -2; n <= 2; n++) { const l = tx + n * w - w / 2, r = tx + n * w + w / 2; if (r > 0 && l < width) out.push(n * w) }
+  return out.length ? out : [0]
+}
+/** Run `fn` once per visible copy of the world with the projection shifted to it. */
+function eachCopy(fn: (dx: number) => void) {
+  const [tx, ty] = projection.translate()
+  for (const dx of worldCopies()) { projection.translate([tx + dx, ty]); fn(dx) }
+  projection.translate([tx, ty])
+}
+
 // The base map (sphere, graticule, land, borders) costs ~130 ms to project at desktop size, so it is
 // rendered once to an offscreen canvas and blitted; ghosts and highlights draw on top every frame.
 // While zooming, the cached bitmap is shown re-scaled as a preview and re-rendered once the gesture pauses.
 let base: HTMLCanvasElement | null = null, baseT: ZoomTransform | null = null, baseKey = '', baseTimer = 0
 const baseKeyNow = () => [projName, currentLevel(), isLight() ? 'l' : 'd', width, height, dpr].join('|')
+let citiesLoaded = 0 // bumps when a city boundary arrives, so the cached base re-renders
 function renderBase() {
   if (!base) base = document.createElement('canvas')
   if (base.width !== width * dpr || base.height !== height * dpr) { base.width = width * dpr; base.height = height * dpr }
@@ -316,21 +344,25 @@ function renderBase() {
   const path = geoPath(projection, bc)
   bc.setTransform(dpr, 0, 0, dpr, 0, 0)
   bc.clearRect(0, 0, width, height)
-  bc.beginPath(); path(sphere); bc.fillStyle = pal.ocean; bc.fill()
-  bc.beginPath(); path(graticule); bc.strokeStyle = pal.grid; bc.lineWidth = 0.6; bc.stroke()
   const level = currentLevel()
-  bc.beginPath(); for (const f of world.land) path(f)
-  bc.fillStyle = pal.land; bc.fill()
-  bc.beginPath(); for (const p of placesAt(level)) if (p.id !== 'US-AK' && p.feature) path(p.feature)
-  bc.strokeStyle = level === 'continent' ? pal.borderStrong : pal.border
-  bc.lineWidth = level === 'continent' ? 0.9 : 0.6; bc.lineJoin = 'round'; bc.stroke()
-  if (level === 'continent') {
-    bc.beginPath(); for (const p of world.countries) if (p.id !== 'US-AK' && p.feature) path(p.feature)
-    bc.strokeStyle = pal.borderFaint; bc.lineWidth = 0.5; bc.stroke()
-  }
-  drawNames(bc)
-  if (projName === 'equalearth') { bc.beginPath(); path(sphere); bc.strokeStyle = pal.outline; bc.lineWidth = 1; bc.stroke() }
-  baseT = transform; baseKey = baseKeyNow()
+  visibleCities = []
+  eachCopy(() => {
+    bc.beginPath(); path(sphere); bc.fillStyle = pal.ocean; bc.fill()
+    bc.beginPath(); path(graticule); bc.strokeStyle = pal.grid; bc.lineWidth = 0.6; bc.stroke()
+    bc.beginPath(); for (const f of world.land) path(f)
+    bc.fillStyle = pal.land; bc.fill()
+    const borders = level === 'continent' ? world.continents : world.countries
+    bc.beginPath(); for (const p of borders) if (p.id !== 'US-AK' && p.feature) path(p.feature)
+    bc.strokeStyle = level === 'continent' ? pal.borderStrong : pal.border
+    bc.lineWidth = level === 'continent' ? 0.9 : 0.6; bc.lineJoin = 'round'; bc.stroke()
+    if (level === 'continent') {
+      bc.beginPath(); for (const p of world.countries) if (p.id !== 'US-AK' && p.feature) path(p.feature)
+      bc.strokeStyle = pal.borderFaint; bc.lineWidth = 0.5; bc.stroke()
+    }
+    drawNames(bc)
+    if (projName === 'equalearth') { bc.beginPath(); path(sphere); bc.strokeStyle = pal.outline; bc.lineWidth = 1; bc.stroke() }
+  })
+  baseT = transform; baseKey = baseKeyNow() + '|' + citiesLoaded
 }
 
 // Place names, Google-Maps style: always on, sized by zoom, a country is named only once it is wide
@@ -339,6 +371,7 @@ const UI_FONT = '-apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", Robot
 let countriesByArea: Place[] = []
 function drawNames(bc: CanvasRenderingContext2D) {
   const k = transform.k
+  const path = geoPath(projection, bc)
   const placed: [number, number, number, number][] = []
   const fits = (r: [number, number, number, number]) => !placed.some(o => r[0] < o[2] && r[2] > o[0] && r[1] < o[3] && r[3] > o[1])
   const onScreen = (x: number, y: number) => x > 0 && x < width && y > insetTop && y < height - insetBottom
@@ -382,33 +415,45 @@ function drawNames(bc: CanvasRenderingContext2D) {
     halo(p.name, xy[0], xy[1], 3); bc.fillText(p.name, xy[0], xy[1]); placed.push(r)
   }
 
-  // cities: dots from mid-zoom, more of them as you zoom in (population-gated), names when they fit
-  visibleCities = []
-  if (k >= CITY_DOTS_FROM && world.cities.length) {
+  // cities: names from mid-zoom (population-gated), real boundaries once zoomed in far enough (fetched lazily)
+  if (k >= CITY_NAMES_FROM && world.cities.length) {
     const level = currentLevel()
     const minPop = level === 'city' ? 2.5e6 / (k * k) : 6e6 / (k * k)
     const cfs = Math.min(13, 10 + 0.8 * Math.log2(k))
-    bc.font = `${level === 'city' ? 500 : 400} ${cfs}px ${UI_FONT}`
-    bc.textAlign = 'left'
+    const wantBorders = k >= CITY_BORDERS_FROM
+    let loads = 0
     for (const c of world.cities) {
       if ((c.pop ?? 0) < minPop && !(c.capital && k >= 3)) continue
       const xy = projection(c.centroid); if (!xy || !onScreen(xy[0], xy[1])) continue
       const [x, y] = xy
-      const dr: [number, number, number, number] = [x - 4, y - 4, x + 4, y + 4]
-      if (!fits(dr)) continue
-      bc.beginPath(); bc.arc(x, y, 3, 0, Math.PI * 2)
-      bc.fillStyle = pal.halo; bc.fill()
-      bc.beginPath(); bc.arc(x, y, 2, 0, Math.PI * 2)
-      bc.fillStyle = level === 'city' ? pal.accent : pal.label; bc.fill()
-      placed.push(dr); visibleCities.push({ c, x, y })
+      if (wantBorders) {
+        if (c.feature) {
+          bc.beginPath(); path(c.feature)
+          bc.fillStyle = pal.cityFill; bc.fill()
+          bc.strokeStyle = pal.cityLine; bc.lineWidth = level === 'city' ? 1.1 : 0.8; bc.stroke()
+        } else if (loads < 12) { loads++; requestCity(c) }
+      }
+      bc.font = `${level === 'city' ? 600 : 400} ${cfs}px ${UI_FONT}`
       const tw = bc.measureText(c.name).width
-      const r: [number, number, number, number] = [x + 5, y - cfs * 0.7, x + 7 + tw, y + cfs * 0.7]
+      const r: [number, number, number, number] = [x - tw / 2 - 3, y - cfs * 0.7, x + tw / 2 + 3, y + cfs * 0.7]
+      visibleCities.push({ c, x, y })
       if (!fits(r)) continue
       bc.fillStyle = level === 'city' ? pal.label : pal.labelDim
-      halo(c.name, x + 6, y, 3); bc.fillText(c.name, x + 6, y); placed.push(r)
+      halo(c.name, x, y, 3); bc.fillText(c.name, x, y); placed.push(r)
     }
-    bc.textAlign = 'center'
   }
+}
+
+// lazy boundary loading for cities that are on screen at border zoom; re-render the base once a batch lands
+const cityRequested = new Set<string>()
+let cityRedraw = 0
+function requestCity(c: Place) {
+  if (cityRequested.has(c.id)) return
+  cityRequested.add(c.id)
+  loadCity(c).then(() => {
+    citiesLoaded++
+    if (!cityRedraw) cityRedraw = window.setTimeout(() => { cityRedraw = 0; requestDraw() }, 120)
+  }).catch(() => { /* no boundary: the name still shows */ })
 }
 function draw() {
   frame = 0
@@ -420,8 +465,9 @@ function draw() {
   ctx.clearRect(0, 0, width, height)
 
   const sameT = !!baseT && baseT.k === transform.k && baseT.x === transform.x && baseT.y === transform.y
-  if (!base || (sameT && baseKey !== baseKeyNow())) renderBase() // first paint, or theme/level flip: instant
-  else if ((!sameT || baseKey !== baseKeyNow()) && !baseTimer) { // mid-zoom: scaled preview now, real render shortly (not reset per frame, so a long animation still gets fresh bases)
+  const keyNow = baseKeyNow() + '|' + citiesLoaded
+  if (!base || (sameT && baseKey !== keyNow)) renderBase() // first paint, or theme/level flip: instant
+  else if ((!sameT || baseKey !== keyNow) && !baseTimer) { // mid-zoom: scaled preview now, real render shortly (not reset per frame, so a long animation still gets fresh bases)
     baseTimer = window.setTimeout(() => { baseTimer = 0; renderBase(); requestDraw() }, 120)
   }
   if (baseT && !(baseT.k === transform.k && baseT.x === transform.x && baseT.y === transform.y)) {
@@ -433,6 +479,7 @@ function draw() {
   } else ctx.drawImage(base!, 0, 0, width, height)
   mark('base', T0)
   const T1 = performance.now()
+  eachCopy(() => {
   // press (instant, on pointer-down) and hover feedback
   const hl = pressPlace ?? hoverPlace
   if (hl) {
@@ -459,6 +506,7 @@ function draw() {
     ctx.beginPath(); path(g.feature)
     ctx.strokeStyle = g.color; ctx.lineWidth = g === selected ? 2 : 1.4; ctx.stroke()
   }
+  })
   ctx.restore()
   mark('ghosts', T1)
   const T2 = performance.now()
@@ -475,7 +523,12 @@ function drawLabels() {
   for (const g of ghosts) {
     const xy = projection(g.anchor)
     if (!xy) continue
-    const [x, y] = xy
+    let [x, y] = xy
+    if (projName === 'mercator') { // pick the copy of the world that is on screen
+      const w = 2 * Math.PI * projection.scale()
+      while (x < 0 && x + w < width + 40) x += w
+      while (x > width && x - w > -40) x -= w
+    }
     if (x < -40 || x > width + 40 || y < insetTop + 30 || y > height - insetBottom) continue
     const u = under(g)
     const ratio = u ? fmtRatio(g.place.areaKm2, u.areaKm2) : null
@@ -520,13 +573,16 @@ let pressXY: [number, number] | null = null
 
 function setupZoom() {
   zoomBehavior = d3zoom<HTMLCanvasElement, unknown>()
-    .scaleExtent([1, 60])
+    .scaleExtent([1, MAX_ZOOM])
     .filter((ev: Event) => {
       const e = ev as PointerEvent | WheelEvent | TouchEvent
       if ('touches' in e && e.touches.length > 1) return true // pinch always zooms
       if (e.type === 'wheel') return true
       if ((e as MouseEvent).button && (e as MouseEvent).button !== 0) return false
-      const geo = invert(pointer(e, canvas) as [number, number])
+      // d3-zoom sees raw touch events on phones: read the finger's position from touches[0], not clientX
+      const src = ('touches' in e && e.touches.length ? e.touches[0] : e) as { clientX: number; clientY: number }
+      const r = canvas.getBoundingClientRect()
+      const geo = invert([src.clientX - r.left, src.clientY - r.top])
       return !(geo && ghostAtPoint(geo)) // a press that starts on a ghost is a drag, not a pan
     })
     .on('start', (ev) => { if (ev.sourceEvent) cancelAnimationFrame(zoomAnim) })
@@ -541,7 +597,7 @@ canvas.addEventListener('pointerdown', (e) => {
   const g = ghostAtPoint(geo)
   if (!g) {
     // instant press feedback on the place under the finger; a pan will cancel it
-    pressPlace = currentLevel() === 'city' ? null : placeAtPoint(geo, currentLevel()); pressXY = xy
+    pressPlace = placeAtPoint(geo, currentLevel()); pressXY = xy
     if (pressPlace) requestDraw()
     return
   }
@@ -576,7 +632,7 @@ canvas.addEventListener('pointermove', (e) => {
   if (e.pointerType === 'mouse') {
     const geo = invert(xy)
     const overDot = !!cityAtPixel(xy)
-    const p = geo && !ghostAtPoint(geo) && !overDot && currentLevel() !== 'city' ? placeAtPoint(geo, currentLevel()) : null
+    const p = geo && !ghostAtPoint(geo) && !overDot ? placeAtPoint(geo, currentLevel()) : null
     if (p !== hoverPlace) { hoverPlace = p; requestDraw() }
     canvas.style.cursor = p || overDot ? 'pointer' : 'grab'
   }
@@ -622,9 +678,14 @@ canvas.addEventListener('click', (e) => {
   if (drag) return
   const geo = invert([e.offsetX, e.offsetY]); if (!geo) return
   if (ghostAtPoint(geo)) return // handled by pointerup
-  const city = cityAtPixel([e.offsetX, e.offsetY])
+  if (currentLevel() === 'city') {
+    const inside = placeAtPoint(geo, 'city') ?? cityAtPixel([e.offsetX, e.offsetY])
+    if (inside) { void liftPlace(inside); return }
+    if (transform.k < CITY_NAMES_FROM) toast('Zoom in to see cities, or search one'); else hideCompare()
+    return
+  }
+  const city = cityAtPixel([e.offsetX, e.offsetY], 10)
   if (city) { void liftPlace(city); return }
-  if (currentLevel() === 'city') { if (transform.k < CITY_DOTS_FROM) toast('Zoom in to see city dots, or search a city'); else hideCompare(); return }
   const p = placeAtPoint(geo, currentLevel())
   if (p) { addGhost(p); hintEl.classList.add('off') } else hideCompare()
 })
@@ -769,5 +830,5 @@ async function boot() {
   requestDraw()
 }
 // debug hook, dev only
-if (import.meta.env.DEV) (window as unknown as { __tsm: unknown }).__tsm = { project: (ll: LonLat) => projection(ll), get pal() { return pal }, get ghosts() { return ghosts }, stats, get transform() { return transform }, get baseT() { return baseT }, get baseKey() { return baseKey }, baseKeyNow, get baseTimer() { return baseTimer }, renderBase, get base() { return base }, get lastZoom() { return lastZoom } }
+if (import.meta.env.DEV) (window as unknown as { __tsm: unknown }).__tsm = { project: (ll: LonLat) => projection(ll), get pal() { return pal }, get ghosts() { return ghosts }, stats, get transform() { return transform }, get baseT() { return baseT }, get baseKey() { return baseKey }, baseKeyNow, get baseTimer() { return baseTimer }, renderBase, draw, get base() { return base }, get visibleCities() { return visibleCities.map(v => ({ n: v.c.name, loaded: !!v.c.feature })) }, get citiesLoaded() { return citiesLoaded }, get lastZoom() { return lastZoom }, setView: (k: number, lon: number, lat: number) => { const b = projection; applyTransform(); const base = (() => { const t = transform; const p = b([lon, lat])!; return [(p[0] - t.x) / t.k, (p[1] - t.y) / t.k] })(); const visH = height - insetTop - insetBottom; select(canvas).call(zoomBehavior.transform, zoomIdentity.translate(width / 2 - k * base[0], insetTop + visH / 2 - k * base[1]).scale(k)) } }
 boot().catch(err => { hintEl.textContent = 'Could not load map data'; console.error(err) })
