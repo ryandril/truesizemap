@@ -1,8 +1,8 @@
 import {
-  geoMercator, geoEqualEarth, geoPath, geoGraticule10, zoom as d3zoom, zoomIdentity, select, pointer,
+  geoMercator, geoEqualEarth, geoPath, geoGraticule10, zoom as d3zoom, zoomIdentity, select, pointer, interpolateZoom, easeCubicInOut,
   type GeoProjection, type ZoomTransform, type ZoomBehavior,
 } from 'd3'
-import { loadWorld, searchPlaces, type Level, type Place, type World } from './data'
+import { loadWorld, loadCity, searchPlaces, type Level, type Place, type World } from './data'
 import { moveGeometry, contains, inBounds, fmtKm2, fmtRatio, type LonLat, type PolyFeature } from './geo'
 import { Spring, project, rubberband, reducedMotion } from './spring'
 
@@ -21,7 +21,9 @@ interface Ghost {
 
 const COLORS = ['#E8A33D', '#2FA39A', '#E26D5A']
 const MAX_GHOSTS = 3
-const ZOOM_BANDS: { max: number; level: Level }[] = [{ max: 1.8, level: 'continent' }, { max: Infinity, level: 'country' }]
+const ZOOM_BANDS: { max: number; level: Level }[] = [{ max: 1.8, level: 'continent' }, { max: 6, level: 'country' }, { max: Infinity, level: 'city' }]
+const CITY_DOTS_FROM = 2.2      // zoom from which city dots appear
+const CITY_TAP_PX = 14
 const FLICK_MIN = 12          // deg/s below which a release just settles
 const DECEL = 0.995           // momentum projection rate (snappier than scroll's 0.998 — the map is small)
 
@@ -135,13 +137,13 @@ function syncLevelUI() {
     b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on))
   })
 }
-function placesAt(level: Level): Place[] { return level === 'continent' ? world.continents : world.countries }
+function placesAt(level: Level): Place[] { return level === 'continent' ? world.continents : level === 'country' ? world.countries : [] }
 
 // ------------------------------------------------------------------ hit testing
 function placeAtPoint(p: LonLat, level: Level): Place | null {
   let best: Place | null = null // prefer the smaller place when overlapping (Alaska sits inside the USA)
   for (const pl of placesAt(level)) {
-    if (!inBounds(pl.bounds, p)) continue
+    if (!pl.feature || !inBounds(pl.bounds, p)) continue
     if (contains(pl.feature, p) && (!best || pl.areaKm2 < best.areaKm2)) best = pl
   }
   return best
@@ -161,7 +163,69 @@ function invert(xy: [number, number]): LonLat | null {
   return [r[0], r[1]]
 }
 
+/** city dots drawn in the last base render, in screen px */
+let visibleCities: { c: Place; x: number; y: number }[] = []
+function cityAtPixel(xy: [number, number], radius = CITY_TAP_PX): Place | null {
+  let best: Place | null = null, bd = radius * radius
+  for (const v of visibleCities) { const d = (v.x - xy[0]) ** 2 + (v.y - xy[1]) ** 2; if (d < bd) { bd = d; best = v.c } }
+  return best
+}
+
 // ------------------------------------------------------------------ ghosts
+/** Lift a place; a city fetches its boundary first. */
+async function liftPlace(place: Place, anchor?: LonLat, animateLift = true): Promise<Ghost | null> {
+  if (!place.feature) {
+    hintEl.textContent = `Loading ${place.name}…`; hintEl.classList.remove('off')
+    try { await loadCity(place) }
+    catch { toast(`No boundary for ${place.name} yet`); hintEl.classList.add('off'); return null }
+  }
+  hintEl.classList.add('off')
+  const g = addGhost(place, anchor, animateLift)
+  zoomToSee(g)
+  return g
+}
+
+/** If a lifted shape is a speck at the current zoom (small cities at world view), zoom in on it. */
+function zoomToSee(g: Ghost) {
+  const b = g.place.bounds
+  if (b.wraps) return
+  const a = projection([b.minLon, b.minLat]), c = projection([b.maxLon, b.maxLat]); if (!a || !c) return
+  const size = Math.max(Math.abs(c[0] - a[0]), Math.abs(c[1] - a[1]))
+  if (size >= 28) return
+  const visH = height - insetTop - insetBottom
+  const want = Math.min(width, visH) * 0.22
+  const k = Math.max(1, Math.min(60, transform.k * (want / Math.max(size, 1))))
+  if (!isFinite(k)) return
+  // centre the ghost's anchor in the visible band at the new scale. Screen = k·base + t, so t = centre − k·base
+  const p = projection(g.anchor); if (!p) return
+  const bx = (p[0] - transform.x) / transform.k, by = (p[1] - transform.y) / transform.k // anchor in base (k=1) coords
+  const cx = width / 2, cy = insetTop + visH / 2
+  const t = zoomIdentity.translate(cx - k * bx, cy - k * by).scale(k)
+  lastZoom = { size, k, t: [t.k, t.x, t.y], p, from: [transform.k, transform.x, transform.y] }
+  animateZoom(t)
+}
+let lastZoom: unknown = null
+
+/** Animate the view to a transform along d3's zoom-out-then-in path. rAF-driven so it works without d3-transition. */
+let zoomAnim = 0
+function animateZoom(target: ZoomTransform, ms = 650) {
+  cancelAnimationFrame(zoomAnim)
+  if (reducedMotion() || ms === 0) { select(canvas).call(zoomBehavior.transform, target); return }
+  const visH = height - insetTop - insetBottom
+  const cx = width / 2, cy = insetTop + visH / 2
+  const a = transform, b = target
+  const view = (t: ZoomTransform): [number, number, number] => [(cx - t.x) / t.k, (cy - t.y) / t.k, Math.min(width, visH) / t.k]
+  const i = interpolateZoom(view(a), view(b))
+  const dur = Math.max(ms, Math.min(1400, i.duration))
+  const t0 = performance.now()
+  const step = (now: number) => {
+    const u = easeCubicInOut(Math.min(1, (now - t0) / dur))
+    const v = i(u); const k = Math.min(width, visH) / v[2]
+    select(canvas).call(zoomBehavior.transform, zoomIdentity.translate(cx - v[0] * k, cy - v[1] * k).scale(k))
+    if (u < 1) zoomAnim = requestAnimationFrame(step)
+  }
+  zoomAnim = requestAnimationFrame(step)
+}
 function addGhost(place: Place, anchor?: LonLat, animateLift = true): Ghost {
   const existing = ghosts.find(g => g.place.id === place.id)
   if (existing && !anchor) { selected = existing; showCompare(existing); requestDraw(); return existing }
@@ -170,7 +234,7 @@ function addGhost(place: Place, anchor?: LonLat, animateLift = true): Ghost {
   const color = COLORS.find(c => !used.has(c)) ?? COLORS[0]
   const a = anchor ?? place.centroid
   const g: Ghost = {
-    key: ++ghostSeq, place, anchor: a, color, feature: place.feature,
+    key: ++ghostSeq, place, anchor: a, color, feature: place.feature!,
     sx: new Spring(a[0], 1, 0.4), sy: new Spring(a[1], 1, 0.4),
     lift: new Spring(animateLift && !reducedMotion() ? 0 : 1, 0.62, 0.42),
   }
@@ -187,7 +251,7 @@ function setAnchor(g: Ghost, a: LonLat) {
   const cap = maxLat() + 3 // rubber-band headroom
   g.anchor = [((a[0] + 540) % 360) - 180, Math.max(-cap, Math.min(cap, a[1]))]
   const same = Math.abs(g.anchor[0] - g.place.centroid[0]) < 1e-6 && Math.abs(g.anchor[1] - g.place.centroid[1]) < 1e-6
-  g.feature = same ? g.place.feature : { type: 'Feature', properties: {}, geometry: moveGeometry(g.place.feature.geometry, g.place.centroid, g.anchor) }
+  g.feature = same ? g.place.feature! : { type: 'Feature', properties: {}, geometry: moveGeometry(g.place.feature!.geometry, g.place.centroid, g.anchor) }
   mark('move', T0)
 }
 function removeGhost(g: Ghost) {
@@ -200,7 +264,8 @@ function clearGhosts() { ghosts = []; selected = null; hideCompare(); $('#clear'
 
 /** what the ghost is "over": the place under its anchor at the current level, excluding itself. */
 function under(g: Ghost): Place | null {
-  const lvl = g.place.level === 'continent' ? 'continent' : currentLevel()
+  const cur = currentLevel()
+  const lvl: Level = g.place.level === 'continent' ? 'continent' : cur === 'continent' ? 'continent' : 'country'
   const p = placeAtPoint(g.anchor, lvl)
   return p && p.id === g.place.id ? null : p
 }
@@ -256,11 +321,11 @@ function renderBase() {
   const level = currentLevel()
   bc.beginPath(); for (const f of world.land) path(f)
   bc.fillStyle = pal.land; bc.fill()
-  bc.beginPath(); for (const p of placesAt(level)) if (p.id !== 'US-AK') path(p.feature)
+  bc.beginPath(); for (const p of placesAt(level)) if (p.id !== 'US-AK' && p.feature) path(p.feature)
   bc.strokeStyle = level === 'continent' ? pal.borderStrong : pal.border
   bc.lineWidth = level === 'continent' ? 0.9 : 0.6; bc.lineJoin = 'round'; bc.stroke()
   if (level === 'continent') {
-    bc.beginPath(); for (const p of world.countries) if (p.id !== 'US-AK') path(p.feature)
+    bc.beginPath(); for (const p of world.countries) if (p.id !== 'US-AK' && p.feature) path(p.feature)
     bc.strokeStyle = pal.borderFaint; bc.lineWidth = 0.5; bc.stroke()
   }
   drawNames(bc)
@@ -316,6 +381,34 @@ function drawNames(bc: CanvasRenderingContext2D) {
     if (!fits(r)) continue
     halo(p.name, xy[0], xy[1], 3); bc.fillText(p.name, xy[0], xy[1]); placed.push(r)
   }
+
+  // cities: dots from mid-zoom, more of them as you zoom in (population-gated), names when they fit
+  visibleCities = []
+  if (k >= CITY_DOTS_FROM && world.cities.length) {
+    const level = currentLevel()
+    const minPop = level === 'city' ? 2.5e6 / (k * k) : 6e6 / (k * k)
+    const cfs = Math.min(13, 10 + 0.8 * Math.log2(k))
+    bc.font = `${level === 'city' ? 500 : 400} ${cfs}px ${UI_FONT}`
+    bc.textAlign = 'left'
+    for (const c of world.cities) {
+      if ((c.pop ?? 0) < minPop && !(c.capital && k >= 3)) continue
+      const xy = projection(c.centroid); if (!xy || !onScreen(xy[0], xy[1])) continue
+      const [x, y] = xy
+      const dr: [number, number, number, number] = [x - 4, y - 4, x + 4, y + 4]
+      if (!fits(dr)) continue
+      bc.beginPath(); bc.arc(x, y, 3, 0, Math.PI * 2)
+      bc.fillStyle = pal.halo; bc.fill()
+      bc.beginPath(); bc.arc(x, y, 2, 0, Math.PI * 2)
+      bc.fillStyle = level === 'city' ? pal.accent : pal.label; bc.fill()
+      placed.push(dr); visibleCities.push({ c, x, y })
+      const tw = bc.measureText(c.name).width
+      const r: [number, number, number, number] = [x + 5, y - cfs * 0.7, x + 7 + tw, y + cfs * 0.7]
+      if (!fits(r)) continue
+      bc.fillStyle = level === 'city' ? pal.label : pal.labelDim
+      halo(c.name, x + 6, y, 3); bc.fillText(c.name, x + 6, y); placed.push(r)
+    }
+    bc.textAlign = 'center'
+  }
 }
 function draw() {
   frame = 0
@@ -327,10 +420,9 @@ function draw() {
   ctx.clearRect(0, 0, width, height)
 
   const sameT = !!baseT && baseT.k === transform.k && baseT.x === transform.x && baseT.y === transform.y
-  if (!base || baseKey !== baseKeyNow()) renderBase()
-  else if (!sameT) {
-    clearTimeout(baseTimer)
-    baseTimer = window.setTimeout(() => { baseTimer = 0; renderBase(); requestDraw() }, 90)
+  if (!base || (sameT && baseKey !== baseKeyNow())) renderBase() // first paint, or theme/level flip: instant
+  else if ((!sameT || baseKey !== baseKeyNow()) && !baseTimer) { // mid-zoom: scaled preview now, real render shortly (not reset per frame, so a long animation still gets fresh bases)
+    baseTimer = window.setTimeout(() => { baseTimer = 0; renderBase(); requestDraw() }, 120)
   }
   if (baseT && !(baseT.k === transform.k && baseT.x === transform.x && baseT.y === transform.y)) {
     // preview: re-scale the cached bitmap into the new transform
@@ -344,12 +436,12 @@ function draw() {
   // press (instant, on pointer-down) and hover feedback
   const hl = pressPlace ?? hoverPlace
   if (hl) {
-    ctx.beginPath(); path(hl.feature)
+    ctx.beginPath(); path(hl.feature!)
     ctx.fillStyle = pressPlace ? 'rgba(232,163,61,0.28)' : pal.hover; ctx.fill()
     ctx.strokeStyle = pressPlace ? pal.accent : pal.hoverLine; ctx.lineWidth = 1; ctx.stroke()
   }
   // where each ghost came from
-  for (const g of ghosts) { ctx.beginPath(); path(g.place.feature); ctx.setLineDash([3, 3]); ctx.strokeStyle = g.color + '99'; ctx.lineWidth = 1; ctx.stroke(); ctx.setLineDash([]) }
+  for (const g of ghosts) { ctx.beginPath(); path(g.place.feature!); ctx.setLineDash([3, 3]); ctx.strokeStyle = g.color + '99'; ctx.lineWidth = 1; ctx.stroke(); ctx.setLineDash([]) }
   // ghosts: lift → shadow + brightness, so a lifted shape reads as floating above the map
   for (const g of ghosts) {
     // lift → a cheap two-layer drop shadow (canvas shadowBlur on a continent-sized path costs ~500 ms/frame)
@@ -388,7 +480,8 @@ function drawLabels() {
     const u = under(g)
     const ratio = u ? fmtRatio(g.place.areaKm2, u.areaKm2) : null
     const over = u ? `<span class="r"><strong>${ratio!.short}</strong> ${ratio!.short.endsWith('%') ? 'of' : 'the size of'} ${esc(u.name)}</span>` : `<span class="r">${fmtKm2(g.place.areaKm2)}</span>`
-    items.push(`<div class="label" style="left:${x}px;top:${y}px;--c:${g.color}" data-key="${g.key}"><b>${esc(g.place.name)}</b> · ${over}</div>`)
+    const def = g.place.level === 'city' ? ` <span class="r">· ${esc(g.place.def)}</span>` : ''
+    items.push(`<div class="label" style="left:${x}px;top:${y}px;--c:${g.color}" data-key="${g.key}"><b>${esc(g.place.name)}</b>${def} · ${over}</div>`)
   }
   labelsEl.innerHTML = items.join('')
   if (selected) fillCompare(selected)
@@ -401,7 +494,7 @@ function hideCompare() { compareEl.hidden = true; selected = null }
 function fillCompare(g: Ghost) {
   const u = under(g)
   $('#cmp-a-name').textContent = g.place.name
-  $('#cmp-a-def').textContent = g.place.def
+  $('#cmp-a-def').textContent = g.place.def + ((g.place.water ?? 0) >= 5 ? ' · land only' : '')
   $('#cmp-a-area').textContent = fmtKm2(g.place.areaKm2)
   if (u) {
     const r = fmtRatio(g.place.areaKm2, u.areaKm2)
@@ -436,6 +529,7 @@ function setupZoom() {
       const geo = invert(pointer(e, canvas) as [number, number])
       return !(geo && ghostAtPoint(geo)) // a press that starts on a ghost is a drag, not a pan
     })
+    .on('start', (ev) => { if (ev.sourceEvent) cancelAnimationFrame(zoomAnim) })
     .on('zoom', (ev) => { transform = ev.transform; requestDraw() })
   select(canvas).call(zoomBehavior).on('dblclick.zoom', null)
 }
@@ -447,7 +541,7 @@ canvas.addEventListener('pointerdown', (e) => {
   const g = ghostAtPoint(geo)
   if (!g) {
     // instant press feedback on the place under the finger; a pan will cancel it
-    pressPlace = placeAtPoint(geo, currentLevel()); pressXY = xy
+    pressPlace = currentLevel() === 'city' ? null : placeAtPoint(geo, currentLevel()); pressXY = xy
     if (pressPlace) requestDraw()
     return
   }
@@ -481,8 +575,10 @@ canvas.addEventListener('pointermove', (e) => {
   if (pressPlace && pressXY && Math.hypot(xy[0] - pressXY[0], xy[1] - pressXY[1]) > 6) { pressPlace = null; requestDraw() } // it's a pan
   if (e.pointerType === 'mouse') {
     const geo = invert(xy)
-    const p = geo && !ghostAtPoint(geo) ? placeAtPoint(geo, currentLevel()) : null
-    if (p !== hoverPlace) { hoverPlace = p; canvas.style.cursor = p ? 'pointer' : 'grab'; requestDraw() }
+    const overDot = !!cityAtPixel(xy)
+    const p = geo && !ghostAtPoint(geo) && !overDot && currentLevel() !== 'city' ? placeAtPoint(geo, currentLevel()) : null
+    if (p !== hoverPlace) { hoverPlace = p; requestDraw() }
+    canvas.style.cursor = p || overDot ? 'pointer' : 'grab'
   }
 })
 function endDrag(e: PointerEvent) {
@@ -526,6 +622,9 @@ canvas.addEventListener('click', (e) => {
   if (drag) return
   const geo = invert([e.offsetX, e.offsetY]); if (!geo) return
   if (ghostAtPoint(geo)) return // handled by pointerup
+  const city = cityAtPixel([e.offsetX, e.offsetY])
+  if (city) { void liftPlace(city); return }
+  if (currentLevel() === 'city') { if (transform.k < CITY_DOTS_FROM) toast('Zoom in to see city dots, or search a city'); else hideCompare(); return }
   const p = placeAtPoint(geo, currentLevel())
   if (p) { addGhost(p); hintEl.classList.add('off') } else hideCompare()
 })
@@ -546,7 +645,7 @@ function setProjection(p: ProjName) {
   requestDraw(); pushHash()
 }
 document.querySelectorAll<HTMLButtonElement>('[data-level]').forEach(b => b.addEventListener('click', () => { if (!b.disabled) setLevel(b.dataset.level as Level) }))
-$('#reset').addEventListener('click', () => select(canvas).transition().duration(reducedMotion() ? 0 : 450).call(zoomBehavior.transform, zoomIdentity))
+$('#reset').addEventListener('click', () => animateZoom(zoomIdentity, 500))
 $('#clear').addEventListener('click', clearGhosts)
 
 const PRESETS: Record<string, { src: string; dst: string; level: Level }> = {
@@ -572,8 +671,8 @@ searchEl.addEventListener('input', () => {
   results = searchPlaces(world, searchEl.value); selIdx = -1
   if (!searchEl.value.trim()) { resultsEl.hidden = true; return }
   resultsEl.innerHTML = results.length
-    ? results.map((p, i) => `<li data-i="${i}"><span>${esc(p.name)}</span><span class="tag">${p.level}</span></li>`).join('')
-    : `<li class="none">No match — cities are coming soon</li>`
+    ? results.map((p, i) => `<li data-i="${i}"><span>${esc(p.name)}</span><span class="tag">${p.level === 'city' ? 'city · ' + esc(p.country ?? '') : p.level}</span></li>`).join('')
+    : `<li class="none">No match</li>`
   resultsEl.hidden = false
 })
 searchEl.addEventListener('keydown', (e) => {
@@ -589,11 +688,12 @@ function pickResult(i: number) {
   const p = results[i]; if (!p) return
   resultsEl.hidden = true; searchEl.value = ''; searchEl.blur()
   setLevel(p.level)
-  const g = addGhost(p)
-  hintEl.classList.add('off')
-  const xy = projection(g.anchor)
-  if (!xy || xy[0] < 0 || xy[0] > width || xy[1] < insetTop || xy[1] > height - insetBottom) select(canvas).transition().duration(reducedMotion() ? 0 : 400).call(zoomBehavior.transform, zoomIdentity)
-  showCompare(g)
+  void liftPlace(p).then(g => {
+    if (!g) return
+    const xy = projection(g.anchor)
+    if (!xy || xy[0] < 0 || xy[0] > width || xy[1] < insetTop || xy[1] > height - insetBottom) animateZoom(zoomIdentity, 450)
+    showCompare(g)
+  })
 }
 
 // share
@@ -637,15 +737,18 @@ function readHash() {
   const h = new URLSearchParams(location.hash.slice(1))
   suppressHash = true
   if (h.get('m') === 'e') setProjection('equalearth')
-  const l = h.get('l'); if (l === 'country' || l === 'continent') setLevel(l)
+  const l = h.get('l'); if (l === 'country' || l === 'continent' || l === 'city') setLevel(l)
   const g = h.get('g')
+  const pending: Promise<unknown>[] = []
   if (g) for (const tok of g.split(';')) {
     const m = tok.match(/^([^@]+)@(-?[\d.]+),(-?[\d.]+)$/); if (!m) continue
     const place = world.byId.get(m[1]); if (!place) continue
-    addGhost(place, [Number(m[2]), Number(m[3])], false)
+    const anchor: LonLat = [Number(m[2]), Number(m[3])]
+    if (place.feature) addGhost(place, anchor, false)
+    else pending.push(liftPlace(place, anchor, false))
   }
   suppressHash = false
-  if (ghosts.length) { hintEl.classList.add('off'); showCompare(ghosts[ghosts.length - 1]) }
+  void Promise.all(pending).then(() => { if (ghosts.length) { hintEl.classList.add('off'); showCompare(ghosts[ghosts.length - 1]) } })
 }
 
 // ------------------------------------------------------------------ boot
@@ -655,6 +758,7 @@ async function boot() {
   measureChrome()
   world = await loadWorld()
   countriesByArea = [...world.countries].sort((a, b) => b.areaKm2 - a.areaKm2)
+  if (world.cities.length) { const b = $<HTMLButtonElement>('[data-level="city"]'); b.disabled = false; b.title = `${world.cities.length.toLocaleString()} cities`; b.querySelector('small')?.remove() }
   setupZoom()
   resize()
   readHash()
@@ -665,5 +769,5 @@ async function boot() {
   requestDraw()
 }
 // debug hook, dev only
-if (import.meta.env.DEV) (window as unknown as { __tsm: unknown }).__tsm = { project: (ll: LonLat) => projection(ll), get pal() { return pal }, get ghosts() { return ghosts }, stats }
+if (import.meta.env.DEV) (window as unknown as { __tsm: unknown }).__tsm = { project: (ll: LonLat) => projection(ll), get pal() { return pal }, get ghosts() { return ghosts }, stats, get transform() { return transform }, get baseT() { return baseT }, get baseKey() { return baseKey }, baseKeyNow, get baseTimer() { return baseTimer }, renderBase, get base() { return base }, get lastZoom() { return lastZoom } }
 boot().catch(err => { hintEl.textContent = 'Could not load map data'; console.error(err) })

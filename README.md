@@ -41,3 +41,16 @@ Deploys to GitHub Pages from `main` via `.github/workflows/deploy.yml`.
 ## Licence
 
 Code: MIT. Natural Earth data: public domain. OpenStreetMap-derived data (when added): ODbL, © OpenStreetMap contributors.
+
+## Cities
+
+`npm run data:cities` matches every Natural Earth populated place that carries a Wikidata ID (~7,100) to its
+OpenStreetMap boundary relation: Wikidata's P402 (OSM relation ID) first, then Overpass for relations tagged with the
+Wikidata ID, then Nominatim by name for the biggest leftovers. Geometry comes from polygons.openstreetmap.fr (falling
+back to the OSM API), tags from the OSM API. Everything is cached in `data/cache/` so the run is resumable. Each boundary is simplified to ~700 points and written to `public/cities/<Qid>.json`, fetched by the
+app only when that city is lifted; `src/assets/cities.json` is the search/label index. When a Wikidata ID maps to
+several relations the pick is: administrative boundary → `place=city` → the most local `admin_level`. The
+"definition" shown in labels comes from the relation's `place` / `border_type` / `admin_level` tags.
+Many official boundaries include territorial water (Tokyo's runs to 42,000 km² of Pacific), so each polygon is
+clipped to Natural Earth 10m land and the label says "land only" when that removed ≥5%. Coastline precision is
+Natural Earth's, so small reclaimed-land cities (Singapore) read a little low. `data/cities-report.md` lists the misses.

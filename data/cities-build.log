@@ -1,0 +1,118 @@
+seed: 7141 places with Wikidata IDs
+P402: 3660
+  overpass 150/3481: +20 (0 batches unavailable)
+50 fetched (3628 queued)  ok 50  miss 0  0.2 min
+  overpass 300/3481: +48 (0 batches unavailable)
+100 fetched (3606 queued)  ok 100  miss 0  0.5 min
+150 fetched (3556 queued)  ok 150  miss 0  0.8 min
+200 fetched (3506 queued)  ok 200  miss 0  1.0 min
+250 fetched (3456 queued)  ok 250  miss 0  1.3 min
+  overpass 450/3481: +73 (0 batches unavailable)
+300 fetched (3431 queued)  ok 300  miss 0  1.5 min
+350 fetched (3381 queued)  ok 350  miss 0  1.8 min
+400 fetched (3331 queued)  ok 400  miss 0  2.0 min
+450 fetched (3281 queued)  ok 450  miss 0  2.3 min
+500 fetched (3231 queued)  ok 500  miss 0  2.5 min
+550 fetched (3181 queued)  ok 550  miss 0  2.6 min
+600 fetched (3131 queued)  ok 600  miss 0  2.8 min
+650 fetched (3081 queued)  ok 649  miss 1  3.0 min
+700 fetched (3031 queued)  ok 699  miss 1  3.2 min
+750 fetched (2981 queued)  ok 749  miss 1  3.3 min
+800 fetched (2931 queued)  ok 799  miss 1  3.5 min
+  overpass 600/3481: +91 (0 batches unavailable)
+850 fetched (2899 queued)  ok 849  miss 1  3.7 min
+900 fetched (2849 queued)  ok 899  miss 1  3.9 min
+950 fetched (2799 queued)  ok 948  miss 2  4.2 min
+1000 fetched (2749 queued)  ok 998  miss 2  4.4 min
+1050 fetched (2699 queued)  ok 1048  miss 2  4.5 min
+1100 fetched (2649 queued)  ok 1098  miss 2  4.7 min
+1150 fetched (2599 queued)  ok 1146  miss 4  5.0 min
+1200 fetched (2549 queued)  ok 1195  miss 5  5.2 min
+1250 fetched (2499 queued)  ok 1244  miss 6  5.4 min
+1300 fetched (2449 queued)  ok 1294  miss 6  5.6 min
+  overpass 750/3481: +141 (0 batches unavailable)
+1350 fetched (2449 queued)  ok 1344  miss 6  5.7 min
+1400 fetched (2399 queued)  ok 1394  miss 6  5.9 min
+1450 fetched (2349 queued)  ok 1443  miss 7  6.1 min
+1500 fetched (2299 queued)  ok 1493  miss 7  6.3 min
+1550 fetched (2249 queued)  ok 1542  miss 8  6.5 min
+1600 fetched (2199 queued)  ok 1591  miss 9  6.7 min
+1650 fetched (2149 queued)  ok 1641  miss 9  6.9 min
+1700 fetched (2099 queued)  ok 1690  miss 10  7.2 min
+1750 fetched (2049 queued)  ok 1739  miss 11  7.4 min
+  overpass 900/3481: +178 (0 batches unavailable)
+1800 fetched (2036 queued)  ok 1789  miss 11  7.6 min
+1850 fetched (1986 queued)  ok 1839  miss 11  7.7 min
+1900 fetched (1936 queued)  ok 1889  miss 11  8.0 min
+1950 fetched (1886 queued)  ok 1939  miss 11  8.1 min
+2000 fetched (1836 queued)  ok 1989  miss 11  8.3 min
+2050 fetched (1786 queued)  ok 2038  miss 12  8.5 min
+2100 fetched (1736 queued)  ok 2088  miss 12  8.6 min
+2150 fetched (1686 queued)  ok 2138  miss 12  8.8 min
+2200 fetched (1636 queued)  ok 2188  miss 12  8.9 min
+2250 fetched (1586 queued)  ok 2238  miss 12  9.1 min
+2300 fetched (1536 queued)  ok 2288  miss 12  9.2 min
+2350 fetched (1486 queued)  ok 2338  miss 12  9.4 min
+  overpass 1050/3481: +194 (0 batches unavailable)
+2400 fetched (1452 queued)  ok 2388  miss 12  9.6 min
+2450 fetched (1402 queued)  ok 2438  miss 12  9.8 min
+  overpass 1200/3481: +214 (0 batches unavailable)
+2500 fetched (1372 queued)  ok 2488  miss 12  10.0 min
+2550 fetched (1322 queued)  ok 2538  miss 12  10.1 min
+2600 fetched (1272 queued)  ok 2587  miss 13  10.3 min
+2650 fetched (1222 queued)  ok 2637  miss 13  10.5 min
+2700 fetched (1172 queued)  ok 2687  miss 13  10.7 min
+2750 fetched (1122 queued)  ok 2737  miss 13  10.8 min
+  overpass 1350/3481: +243 (0 batches unavailable)
+2800 fetched (1101 queued)  ok 2787  miss 13  11.0 min
+2850 fetched (1051 queued)  ok 2837  miss 13  11.2 min
+2900 fetched (1001 queued)  ok 2887  miss 13  11.4 min
+2950 fetched (951 queued)  ok 2937  miss 13  11.5 min
+3000 fetched (901 queued)  ok 2987  miss 13  11.7 min
+3050 fetched (851 queued)  ok 3037  miss 13  11.9 min
+3100 fetched (801 queued)  ok 3087  miss 13  12.1 min
+3150 fetched (751 queued)  ok 3136  miss 14  12.3 min
+3200 fetched (701 queued)  ok 3186  miss 14  12.5 min
+3250 fetched (651 queued)  ok 3236  miss 14  12.7 min
+3300 fetched (601 queued)  ok 3286  miss 14  12.8 min
+  overpass 1500/3481: +261 (0 batches unavailable)
+3350 fetched (569 queued)  ok 3336  miss 14  13.0 min
+3400 fetched (519 queued)  ok 3386  miss 14  13.1 min
+3450 fetched (469 queued)  ok 3435  miss 15  13.4 min
+3500 fetched (419 queued)  ok 3485  miss 15  13.5 min
+3550 fetched (369 queued)  ok 3535  miss 15  13.7 min
+3600 fetched (319 queued)  ok 3585  miss 15  13.9 min
+3650 fetched (269 queued)  ok 3635  miss 15  14.1 min
+3700 fetched (219 queued)  ok 3685  miss 15  14.2 min
+  overpass 1650/3481: +270 (0 batches unavailable)
+  overpass 1800/3481: +307 (0 batches unavailable)
+3750 fetched (215 queued)  ok 3734  miss 16  14.4 min
+3800 fetched (165 queued)  ok 3784  miss 16  14.5 min
+3850 fetched (115 queued)  ok 3834  miss 16  14.7 min
+  overpass 1950/3481: +316 (0 batches unavailable)
+3900 fetched (74 queued)  ok 3882  miss 18  14.8 min
+3950 fetched (24 queued)  ok 3932  miss 18  14.9 min
+  overpass 2250/3481: +357 (1 batches unavailable)
+4000 fetched (15 queued)  ok 3982  miss 18  18.0 min
+  overpass 2400/3481: +374 (1 batches unavailable)
+  overpass 2550/3481: +403 (1 batches unavailable)
+4050 fetched (11 queued)  ok 4032  miss 18  19.6 min
+  overpass 2700/3481: +434 (1 batches unavailable)
+  overpass 2850/3481: +451 (1 batches unavailable)
+4100 fetched (9 queued)  ok 4082  miss 18  21.4 min
+  overpass 3000/3481: +484 (1 batches unavailable)
+  overpass 3150/3481: +511 (1 batches unavailable)
+4150 fetched (19 queued)  ok 4132  miss 18  22.6 min
+  overpass 3300/3481: +546 (1 batches unavailable)
+4200 fetched (4 queued)  ok 4182  miss 18  24.7 min
+  overpass 3450/3481: +576 (1 batches unavailable)
+  overpass 3481/3481: +582 (1 batches unavailable)
+  nominatim fallback for 410 places ≥ 300,000
+4250 fetched (0 queued)  ok 4232  miss 18  28.6 min
+4300 fetched (0 queued)  ok 4282  miss 18  30.6 min
+4350 fetched (0 queued)  ok 4332  miss 18  32.5 min
+4400 fetched (0 queued)  ok 4382  miss 18  34.2 min
+4450 fetched (0 queued)  ok 4432  miss 18  36.2 min
+4500 fetched (0 queued)  ok 4482  miss 18  37.9 min
+  nominatim: +272
+done: 4496 cities, 2645 misses → data/cities-report.md

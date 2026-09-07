@@ -1,4 +1,5 @@
 node_modules
 dist
 data/raw
+data/cache
 .DS_Store

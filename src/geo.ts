@@ -60,7 +60,7 @@ export function fmtKm2(v: number): string {
 
 export function fmtRatio(a: number, b: number): { pct: string; times: string; short: string } {
   const r = a / b
-  const pct = r < 0.001 ? '<0.1%' : r < 1 ? (r * 100).toFixed(r < 0.1 ? 1 : 0) + '%' : (r * 100).toFixed(0) + '%'
+  const pct = r < 0.0001 ? '<0.01%' : r < 0.01 ? (r * 100).toFixed(2) + '%' : r < 1 ? (r * 100).toFixed(r < 0.1 ? 1 : 0) + '%' : (r * 100).toFixed(0) + '%'
   const times = r >= 1 ? (r >= 10 ? r.toFixed(0) : r.toFixed(1)) + '×' : (1 / r >= 10 ? (1 / r).toFixed(0) : (1 / r).toFixed(1)) + '× smaller'
   const short = r >= 1 ? (r >= 10 ? r.toFixed(0) : r.toFixed(1)) + '×' : pct
   return { pct, times, short }
