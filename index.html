@@ -119,5 +119,18 @@
   <script type="module" src="/src/main.ts"></script>
   <!-- GoatCounter analytics: privacy-friendly, no cookies, no personal data -->
   <script data-goatcounter="https://lowell.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
+  <!-- Google Analytics 4. Set GA_ID to the property's Measurement ID (G-XXXXXXXXXX); empty = disabled. -->
+  <script>
+    (function () {
+      var GA_ID = '';
+      if (!GA_ID) return;
+      var s = document.createElement('script'); s.async = true; s.src = 'https://www.googletagmanager.com/gtag/js?id=' + GA_ID; document.head.appendChild(s);
+      window.dataLayer = window.dataLayer || [];
+      function gtag() { dataLayer.push(arguments); }
+      window.gtag = gtag;
+      gtag('js', new Date());
+      gtag('config', GA_ID, { anonymize_ip: true });
+    })();
+  </script>
 </body>
 </html>
