@@ -1110,7 +1110,11 @@ function pickResult(i: number) {
 // share
 $('#share').addEventListener('click', async () => {
   pushHash()
-  const url = location.href
+  // Drop campaign tags before sharing, so a visitor who arrived from a tagged link does not pass that
+  // campaign on to everyone they share with (every reshare would otherwise be credited to the first one).
+  const u = new URL(location.href)
+  for (const k of [...u.searchParams.keys()]) if (/^(utm_|fbclid|gclid|li_fat_id|mc_)/i.test(k)) u.searchParams.delete(k)
+  const url = u.toString()
   try { await navigator.clipboard.writeText(url); toast('Link copied — it opens on this exact view') }
   catch { prompt('Copy this link', url) }
 })
