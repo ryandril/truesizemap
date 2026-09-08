@@ -26,8 +26,8 @@ const CITY_NAMES_FROM = 2.2     // zoom from which city names appear
 const CITY_BORDERS_FROM = 7     // zoom from which city boundaries are drawn (fetched lazily)
 const CITY_TAP_PX = 18
 const MAX_ZOOM = 500
-const FLICK_MIN = 12          // deg/s below which a release just settles
-const DECEL = 0.995           // momentum projection rate (snappier than scroll's 0.998 — the map is small)
+const FLICK_MIN_PX = 900      // screen px/s below which a release just settles where it is (only a real flick coasts)
+const DECEL = 0.99            // momentum projection rate: a flick coasts about a tenth of a second of its speed
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector(sel) as T
 const app = $('#app')
@@ -783,10 +783,14 @@ function endDrag(e: PointerEvent) {
   const dt = (b.t - a.t) / 1000
   let vLon = 0, vLat = 0
   if (dt > 0.008 && !reducedMotion()) { vLon = (b.lon - a.lon) / dt; vLat = (b.lat - a.lat) / dt }
-  const speed = Math.hypot(vLon, vLat)
+  // judge the flick in screen pixels so it means the same thing at every zoom
+  const pa = projection([a.lon, a.lat]), pb = projection([b.lon, b.lat])
+  const speedPx = pa && pb && dt > 0.008 ? Math.hypot(pb[0] - pa[0], pb[1] - pa[1]) / dt : 0
+  const flick = speedPx > FLICK_MIN_PX
+  const speed = flick ? Math.hypot(vLon, vLat) : 0
   const cap = maxLat()
   let targetLon = d.raw[0], targetLat = d.raw[1]
-  if (speed > FLICK_MIN) { // momentum: animate to where the flick is going, at the finger's velocity
+  if (flick) { // momentum: animate to where the flick is going, at the finger's velocity
     targetLon += project(vLon, DECEL); targetLat += project(vLat, DECEL)
     // …but keep the landing spot on screen: a shape that flies off the map is lost, not fun
     const land = projection([targetLon, Math.max(-cap, Math.min(cap, targetLat))])
@@ -802,7 +806,7 @@ function endDrag(e: PointerEvent) {
     g.sx.set(0.85, 0.5); g.sy.set(0.85, 0.5)
   } else { g.sx.set(1, 0.35); g.sy.set(1, 0.35); vLon = 0; vLat = 0 }
   targetLat = Math.max(-cap, Math.min(cap, targetLat))
-  if (Math.abs(targetLon - g.anchor[0]) > 1e-6 || Math.abs(targetLat - g.anchor[1]) > 1e-6 || speed > FLICK_MIN) {
+  if (Math.abs(targetLon - g.anchor[0]) > 1e-6 || Math.abs(targetLat - g.anchor[1]) > 1e-6 || speed > 0) {
     g.sx.jump(g.anchor[0]); g.sy.jump(g.anchor[1])
     g.sx.to(targetLon, vLon); g.sy.to(targetLat, vLat); kick()
   } else pushHash()
