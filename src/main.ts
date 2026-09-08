@@ -132,7 +132,7 @@ function resize() {
   measureChrome()
   const r = stage.getBoundingClientRect()
   width = Math.max(1, Math.round(r.width)); height = Math.max(1, Math.round(r.height))
-  dpr = Math.min(2, window.devicePixelRatio || 1)
+  dpr = Math.min(window.devicePixelRatio || 1, width * height > 2.2e6 ? 1.25 : width * height > 1.4e6 ? 1.5 : 2)
   canvas.width = width * dpr; canvas.height = height * dpr
   canvas.style.width = width + 'px'; canvas.style.height = height + 'px'
   projection = makeProjection()
@@ -418,11 +418,12 @@ let base: HTMLCanvasElement | null = null, baseT: ZoomTransform | null = null, b
 const baseKeyNow = () => [projName, currentLevel(), isLight() ? 'l' : 'd', width, height, dpr].join('|')
 let citiesLoaded = 0 // bumps when a city boundary arrives, so the cached base re-renders
 let morphing = false
+let zooming = false // a pan/zoom gesture is in progress: cheap frames only
 let liteLand: PolyFeature[] | null = null
 function renderBase() {
   if (!base) base = document.createElement('canvas')
   // animation frames: coarse outlines at 1× pixel density; everything else full detail at device density
-  const lite = morphing && !!liteLand
+  const lite = (morphing || zooming) && !!liteLand
   const d = lite ? 1 : dpr
   if (base.width !== width * d || base.height !== height * d) { base.width = width * d; base.height = height * d }
   const bc = base.getContext('2d')!
@@ -453,7 +454,7 @@ function renderBase() {
     drawNames(bc)
     if (projName === 'equalearth') { bc.beginPath(); path(sphere); bc.strokeStyle = pal.outline; bc.lineWidth = 1; bc.stroke() }
   })
-  baseT = transform; baseKey = baseKeyNow() + '|' + citiesLoaded
+  baseT = transform; baseKey = baseKeyNow() + '|' + citiesLoaded + (lite ? '|lite' : '')
 }
 
 // Place names, Google-Maps style: always on, sized by zoom, a country is named only once it is wide
@@ -557,9 +558,11 @@ function draw() {
 
   const sameT = !!baseT && baseT.k === transform.k && baseT.x === transform.x && baseT.y === transform.y
   const keyNow = baseKeyNow() + '|' + citiesLoaded
-  if (!base || (sameT && baseKey !== keyNow)) renderBase() // first paint, or theme/level flip: instant
-  else if ((!sameT || baseKey !== keyNow) && !baseTimer) { // mid-zoom: scaled preview now, real render shortly (not reset per frame, so a long animation still gets fresh bases)
-    baseTimer = window.setTimeout(() => { baseTimer = 0; renderBase(); requestDraw() }, 120)
+  if (!base || (sameT && baseKey !== keyNow && !zooming)) renderBase() // first paint, or theme/level flip: instant
+  else if (!sameT || baseKey !== keyNow) {
+    if (liteLand) { zooming = true; renderBase() } // cheap coarse frame that tracks the gesture exactly
+    clearTimeout(baseTimer)
+    baseTimer = window.setTimeout(() => { baseTimer = 0; zooming = false; renderBase(); requestDraw() }, 160) // full detail once the gesture pauses
   }
   if (baseT && !(baseT.k === transform.k && baseT.x === transform.x && baseT.y === transform.y)) {
     // preview: re-scale the cached bitmap into the new transform
@@ -633,16 +636,20 @@ function drawLabels() {
     const min = w / 2 + 6, max = width - w / 2 - 6
     if (x < min) el.style.left = min + 'px'; else if (x > max) el.style.left = max + 'px'
   }
-  if (selected) { fillCompare(selected); syncSheetHeight() }
+  if (selected) { const before = lastCompareKey; fillCompare(selected); if (lastCompareKey !== before) syncSheetHeight() }
 }
 const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
 
 // ------------------------------------------------------------------ compare sheet
-function showCompare(g: Ghost) { selected = g; compareEl.hidden = false; fillCompare(g); syncSheetHeight() }
+function showCompare(g: Ghost) { selected = g; compareEl.hidden = false; lastCompareKey = ''; fillCompare(g); syncSheetHeight() }
 function hideCompare() { compareEl.hidden = true; selected = null; syncSheetHeight() }
 function syncSheetHeight() { app.style.setProperty('--sheet-h', compareEl.hidden ? '0px' : compareEl.offsetHeight + 10 + 'px') }
+let lastCompareKey = ''
 function fillCompare(g: Ghost) {
   const u = under(g)
+  const key = g.key + '|' + (u?.id ?? (transform.k >= CITY_BORDERS_FROM ? 'c' : '') + (placeAtPoint(g.anchor, g.place.level === 'continent' ? 'continent' : 'country')?.id ?? '-'))
+  if (key === lastCompareKey) return
+  lastCompareKey = key
   $('#cmp-a-name').textContent = g.place.name
   $('#cmp-a-def').textContent = g.place.def + ((g.place.water ?? 0) >= 5 ? ' · land only' : '')
   $('#cmp-a-area').textContent = fmtKm2(g.place.areaKm2)
@@ -751,6 +758,7 @@ canvas.addEventListener('pointermove', (e) => {
   }
   if (pressPlace && pressXY && Math.hypot(xy[0] - pressXY[0], xy[1] - pressXY[1]) > 6) { pressPlace = null; requestDraw() } // it's a pan
   if (e.pointerType === 'mouse') {
+    if (frame) return // a draw is already queued this frame; the next move will re-test
     const geo = invert(xy)
     const overDot = !!cityAtPixel(xy)
     const p = geo && !ghostAtPoint(geo) && !overDot ? placeAtPoint(geo, currentLevel()) : null

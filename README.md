@@ -54,3 +54,8 @@ several relations the pick is: administrative boundary → `place=city` → the 
 Many official boundaries include territorial water (Tokyo's runs to 42,000 km² of Pacific), so each polygon is
 clipped to Natural Earth 10m land and the label says "land only" when that removed ≥5%. Coastline precision is
 Natural Earth's, so small reclaimed-land cities (Singapore) read a little low. `data/cities-report.md` lists the misses.
+
+The site ships only **major cities** (`npm run data:prune`): population ≥ 1M, or national capitals ≥ 300k, with a
+boundary between 15 and 40,000 km². That drops whole-province matches (Chongqing, Riyadh) and old-town cores
+(Manila's 43 km² city proper, Athens municipality) whose numbers would mislead; `data/cities-pruned.md` lists them.
+The full ~4,500-city set is still reproducible from the pipeline cache.

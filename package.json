@@ -32,6 +32,7 @@
     "build": "tsc --noEmit -p tsconfig.json && vite build",
     "preview": "vite preview",
     "data:countries": "node scripts/build-countries.mjs",
-    "data:cities": "node scripts/build-cities.mjs"
+    "data:cities": "node scripts/build-cities.mjs",
+    "data:prune": "node scripts/prune-cities.mjs"
   }
 }

@@ -1,6 +1,6 @@
 # truesizemap e2e report
 
-URL: http://localhost:4173/ · 2026-09-08T01:44:00.192Z
+URL: http://localhost:4173/ · 2026-09-08T03:40:29.334Z
 
 | Scenario | Mobile | Desktop |
 |---|---|---|
@@ -26,7 +26,7 @@ URL: http://localhost:4173/ · 2026-09-08T01:44:00.192Z
 - hidden after 'Just explore': true
 - reappeared after reload: false (localStorage seenWhy=1)
 - 'Why?' reopens: true
-- first label seen: "Greenland · 8.9% of North America"; compare card appeared 1913ms after the label read "of Africa"
+- first label seen: "Greenland · 8.9% of North America"; compare card appeared 1933ms after the label read "of Africa"
 - demo label: "Greenland · 7.2% of Africa"; compare visible: true; cmp-b: "Africa"
 - tests/shots/mobile-01-demo-greenland-africa.png
 
@@ -43,7 +43,7 @@ URL: http://localhost:4173/ · 2026-09-08T01:44:00.192Z
 - label moved: true; ratio text changed: true; hash: #m=w&g=BRA@17.00,6.00
 
 ### [mobile] 4 Pan / pinch-zoom / pole limits / endless E-W — PASS
-- level after deep zoom: city; distinct colours in band 112 -> 312
+- level after deep zoom: city; distinct colours in band 112 -> 125
 - tests/shots/mobile-04-zoomed-in.png
 - level after zoom out: country
 - after 6 downward pans: top row of the visible band opaque 4440/4440 px (map still covers the top edge: true)
@@ -72,19 +72,19 @@ URL: http://localhost:4173/ · 2026-09-08T01:44:00.192Z
 - tests/shots/mobile-06-three-shapes-toast.png
 
 ### [mobile] 7 Presets (every chip, every tab) + rapid clicks — PASS
-- continent "Greenland → Africa": OK "Greenland · 7.2% of Africa"; cmp-b "Africa"; click 62ms
-- continent "Europe → Africa": OK "Europe · 33% of Africa"; cmp-b "Africa"; click 37ms
+- continent "Greenland → Africa": OK "Greenland · 7.2% of Africa"; cmp-b "Africa"; click 65ms
+- continent "Europe → Africa": OK "Europe · 33% of Africa"; cmp-b "Africa"; click 36ms
 - continent "Antarctica → Africa": OK "Antarctica · 41% of Africa"; cmp-b "Africa"; click 33ms
-- continent "Oceania → Europe": OK "Oceania · 87% of Europe"; cmp-b "Europe"; click 38ms
+- continent "Oceania → Europe": OK "Oceania · 87% of Europe"; cmp-b "Europe"; click 27ms
 - country "Alaska → Mexico": OK "Alaska · 76% of Mexico"; cmp-b "Mexico"; click 32ms
 - country "Greenland → DR Congo": OK "Greenland · 92% of Dem. Rep. Congo"; cmp-b "Dem. Rep. Congo"; click 35ms
-- country "Australia → USA": OK "Australia · 82% of United States of America"; cmp-b "United States of America"; click 22ms
-- country "India → Argentina": OK "India · 1.1× the size of Argentina"; cmp-b "Argentina"; click 31ms
-- country "Japan → Madagascar": OK "Japan · 62% of Madagascar"; cmp-b "Madagascar"; click 24ms
-- city "New York → Tokyo": OK "New York City · city · 33% of Tokyo"; cmp-b "Tokyo"; click 35ms
-- city "London → Jakarta": OK "London · administrative area · 2.3× the size of Jakarta"; cmp-b "Jakarta"; click 24ms
-- city "Shanghai → Singapore": OK "Shanghai · province-level · 14× the size of Singapore"; cmp-b "Singapore"; click 22ms
-- city "Mexico City → Mumbai": OK "Mexico City · state · 3.7× the size of Mumbai"; cmp-b "Mumbai"; click 23ms
+- country "Australia → USA": OK "Australia · 82% of United States of America"; cmp-b "United States of America"; click 32ms
+- country "India → Argentina": OK "India · 1.1× the size of Argentina"; cmp-b "Argentina"; click 29ms
+- country "Japan → Madagascar": OK "Japan · 62% of Madagascar"; cmp-b "Madagascar"; click 25ms
+- city "New York → Tokyo": OK "New York City · city · 33% of Tokyo"; cmp-b "Tokyo"; click 32ms
+- city "London → Jakarta": OK "London · administrative area · 2.3× the size of Jakarta"; cmp-b "Jakarta"; click 34ms
+- city "Shanghai → Singapore": OK "Shanghai · province-level · 14× the size of Singapore"; cmp-b "Singapore"; click 33ms
+- city "Mexico City → Mumbai": OK "Mexico City · state · 3.7× the size of Mumbai"; cmp-b "Mumbai"; click 28ms
 - rapid 0→1→2 (Alaska → Mexico | Greenland → DR Congo | Australia → USA): labels ["Australia · 82% of United States of America"]; busy chips left: 0
 - follow-up preset "India → Argentina": ["India · 1.1× the size of Argentina"]
 - tests/shots/mobile-07-rapid-presets.png
@@ -142,7 +142,7 @@ URL: http://localhost:4173/ · 2026-09-08T01:44:00.192Z
 - hidden after 'Just explore': true
 - reappeared after reload: false (localStorage seenWhy=1)
 - 'Why?' reopens: true
-- first label seen: "Greenland · 7.2% of Africa"; compare card appeared 380ms after the label read "of Africa"
+- first label seen: "Greenland · 7.2% of Africa"; compare card appeared 227ms after the label read "of Africa"
 - demo label: "Greenland · 7.2% of Africa"; compare visible: true; cmp-b: "Africa"
 - tests/shots/desktop-01-demo-greenland-africa.png
 
@@ -159,7 +159,7 @@ URL: http://localhost:4173/ · 2026-09-08T01:44:00.192Z
 - label moved: true; ratio text changed: true; hash: #m=w&g=BRA@17.00,6.00
 
 ### [desktop] 4 Pan / pinch-zoom / pole limits / endless E-W — PASS
-- level after deep zoom: city; distinct colours in band 135 -> 290
+- level after deep zoom: city; distinct colours in band 135 -> 245
 - tests/shots/desktop-04-zoomed-in.png
 - level after zoom out: country
 - after 6 downward pans: top row of the visible band opaque 3780/3780 px (map still covers the top edge: true)
@@ -187,19 +187,19 @@ URL: http://localhost:4173/ · 2026-09-08T01:44:00.192Z
 - tests/shots/desktop-06-three-shapes-toast.png
 
 ### [desktop] 7 Presets (every chip, every tab) + rapid clicks — PASS
-- continent "Greenland → Africa": OK "Greenland · 7.2% of Africa"; cmp-b "Africa"; click 55ms
-- continent "Europe → Africa": OK "Europe · 33% of Africa"; cmp-b "Africa"; click 24ms
-- continent "Antarctica → Africa": OK "Antarctica · 41% of Africa"; cmp-b "Africa"; click 34ms
-- continent "Oceania → Europe": OK "Oceania · 87% of Europe"; cmp-b "Europe"; click 36ms
-- country "Alaska → Mexico": OK "Alaska · 76% of Mexico"; cmp-b "Mexico"; click 32ms
-- country "Greenland → DR Congo": OK "Greenland · 92% of Dem. Rep. Congo"; cmp-b "Dem. Rep. Congo"; click 31ms
-- country "Australia → USA": OK "Australia · 82% of United States of America"; cmp-b "United States of America"; click 29ms
-- country "India → Argentina": OK "India · 1.1× the size of Argentina"; cmp-b "Argentina"; click 35ms
-- country "Japan → Madagascar": OK "Japan · 62% of Madagascar"; cmp-b "Madagascar"; click 22ms
-- city "New York → Tokyo": OK "New York City · city · 33% of Tokyo"; cmp-b "Tokyo"; click 33ms
-- city "London → Jakarta": OK "London · administrative area · 2.3× the size of Jakarta"; cmp-b "Jakarta"; click 27ms
+- continent "Greenland → Africa": OK "Greenland · 7.2% of Africa"; cmp-b "Africa"; click 58ms
+- continent "Europe → Africa": OK "Europe · 33% of Africa"; cmp-b "Africa"; click 31ms
+- continent "Antarctica → Africa": OK "Antarctica · 41% of Africa"; cmp-b "Africa"; click 32ms
+- continent "Oceania → Europe": OK "Oceania · 87% of Europe"; cmp-b "Europe"; click 24ms
+- country "Alaska → Mexico": OK "Alaska · 76% of Mexico"; cmp-b "Mexico"; click 33ms
+- country "Greenland → DR Congo": OK "Greenland · 92% of Dem. Rep. Congo"; cmp-b "Dem. Rep. Congo"; click 32ms
+- country "Australia → USA": OK "Australia · 82% of United States of America"; cmp-b "United States of America"; click 25ms
+- country "India → Argentina": OK "India · 1.1× the size of Argentina"; cmp-b "Argentina"; click 18ms
+- country "Japan → Madagascar": OK "Japan · 62% of Madagascar"; cmp-b "Madagascar"; click 21ms
+- city "New York → Tokyo": OK "New York City · city · 33% of Tokyo"; cmp-b "Tokyo"; click 32ms
+- city "London → Jakarta": OK "London · administrative area · 2.3× the size of Jakarta"; cmp-b "Jakarta"; click 33ms
 - city "Shanghai → Singapore": OK "Shanghai · province-level · 14× the size of Singapore"; cmp-b "Singapore"; click 36ms
-- city "Mexico City → Mumbai": OK "Mexico City · state · 3.7× the size of Mumbai"; cmp-b "Mumbai"; click 28ms
+- city "Mexico City → Mumbai": OK "Mexico City · state · 3.7× the size of Mumbai"; cmp-b "Mumbai"; click 37ms
 - rapid 0→1→2 (Alaska → Mexico | Greenland → DR Congo | Australia → USA): labels ["Australia · 82% of United States of America"]; busy chips left: 0
 - follow-up preset "India → Argentina": ["India · 1.1× the size of Argentina"]
 - tests/shots/desktop-07-rapid-presets.png
@@ -225,7 +225,7 @@ URL: http://localhost:4173/ · 2026-09-08T01:44:00.192Z
 - tests/shots/desktop-10-theme-dark.png
 - tests/shots/desktop-10-theme-light.png
 - initial {"attr":null,"scheme":"light","glyph":"☾","stored":null,"bg":"rgb(245, 245, 247)"}
-- after click {"attr":"dark","scheme":"dark","glyph":"☀","stored":"dark","bg":"rgb(16, 18, 23)"}
+- after click {"attr":"dark","scheme":"dark","glyph":"☀","stored":"dark","bg":"rgb(19, 21, 26)"}
 - after reload {"attr":"dark","scheme":"dark","glyph":"☀","stored":"dark","bg":"rgb(11, 13, 18)"}
 - after 2nd click {"attr":"light","scheme":"light","glyph":"☾","stored":"light","bg":"rgb(242, 242, 244)"}
 
