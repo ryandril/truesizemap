@@ -143,7 +143,7 @@ const R = 6371.0088
 const km2 = g => Math.round(topoClient.feature(topo, g).geometry ? geoAreaKm2(topoClient.feature(topo, g)) : 0)
 function geoAreaKm2(f) { return d3GeoArea(f) * R * R }
 import { geoArea as d3GeoArea } from 'd3'
-console.log(`world.json ${(out.length / 1024).toFixed(0)} KB, ${topo.arcs.length} arcs, ${countries.length} countries`)
+console.log(`world.json ${(out.length / 1024).toFixed(0)} KB, ${topo.arcs.length} arcs, ${topo.objects.countries.geometries.length} countries shipped (of ${countries.length} before simplification)`)
 for (const g of topo.objects.continents.geometries) console.log(`  ${g.properties.n.padEnd(14)} ${km2(g).toLocaleString()} km²`)
 for (const n of ['Greenland', 'Russia', 'Alaska', 'Mexico', 'Dem. Rep. Congo', 'Egypt', 'France']) {
   const g = topo.objects.countries.geometries.find(g => g.properties.n === n)

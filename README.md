@@ -13,7 +13,7 @@ Equal Earth and watch the distortion go.
 
 ## What it does
 
-- **Drag anything.** 243 countries and territories, 7 continents, 504 major cities. Up to three shapes at once,
+- **Drag anything.** 238 countries and territories, 7 continents, 504 major cities. Up to three shapes at once,
   each labelled with its ratio to whatever it is sitting on.
 - **Tap a shape** for a card giving both areas and the ratio each way.
 - **Flip projections.** Mercator and Equal Earth blend into one another, keeping your zoom and centre.
