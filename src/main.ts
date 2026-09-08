@@ -4,7 +4,7 @@ import {
 } from 'd3'
 import { loadWorld, loadCity, loadWorldLite, searchPlaces, type Level, type Place, type World } from './data'
 import { moveGeometry, contains, inBounds, fmtKm2, fmtRatio, type LonLat, type PolyFeature } from './geo'
-import { Spring, project, rubberband, reducedMotion } from './spring'
+import { Spring, rubberband, reducedMotion } from './spring'
 
 type ProjName = 'mercator' | 'equalearth'
 
@@ -26,8 +26,6 @@ const CITY_NAMES_FROM = 2.2     // zoom from which city names appear
 const CITY_BORDERS_FROM = 7     // zoom from which city boundaries are drawn (fetched lazily)
 const CITY_TAP_PX = 18
 const MAX_ZOOM = 500
-const FLICK_MIN_PX = 900      // screen px/s below which a release just settles where it is (only a real flick coasts)
-const DECEL = 0.99            // momentum projection rate: a flick coasts about a tenth of a second of its speed
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector(sel) as T
 const app = $('#app')
@@ -321,7 +319,7 @@ function addGhost(place: Place, anchor?: LonLat, animateLift = true): Ghost {
   setAnchor(g, a)
   if (animateLift && !reducedMotion()) { g.lift.to(1); kick() }
   ghosts.push(g)
-  hintEl.textContent = 'Drag it · flick it · tap to compare'
+  hintEl.textContent = 'Drag it anywhere · tap to compare'
   $('#clear').hidden = false
   requestDraw(); pushHash()
   return g
@@ -679,7 +677,7 @@ $('#compare-close').addEventListener('click', hideCompare)
 $('#cmp-remove').addEventListener('click', () => { if (selected) removeGhost(selected) })
 
 // ------------------------------------------------------------------ interactions
-interface Drag { g: Ghost; startGeo: LonLat; startAnchor: LonLat; raw: LonLat; moved: boolean; hist: { t: number; lon: number; lat: number }[] }
+interface Drag { g: Ghost; startGeo: LonLat; startAnchor: LonLat; raw: LonLat; moved: boolean }
 let drag: Drag | null = null
 let pressXY: [number, number] | null = null
 
@@ -731,7 +729,7 @@ canvas.addEventListener('pointerdown', (e) => {
   }
   // grab: start from the live value, cancel any motion in flight
   g.sx.jump(g.anchor[0]); g.sy.jump(g.anchor[1]); g.settled?.(); g.settled = undefined
-  drag = { g, startGeo: geo, startAnchor: g.anchor.slice() as LonLat, raw: g.anchor.slice() as LonLat, moved: false, hist: [{ t: e.timeStamp, lon: g.anchor[0], lat: g.anchor[1] }] }
+  drag = { g, startGeo: geo, startAnchor: g.anchor.slice() as LonLat, raw: g.anchor.slice() as LonLat, moved: false }
   if (!reducedMotion()) { g.lift.set(0.8, 0.3); g.lift.to(1.35); kick() }
   canvas.setPointerCapture(e.pointerId); canvas.classList.add('dragging')
   ghosts = [...ghosts.filter(x => x !== g), g] // bring to front
@@ -747,8 +745,6 @@ canvas.addEventListener('pointermove', (e) => {
     if (Math.abs(dLon) + Math.abs(dLat) > 0.05) drag.moved = true
     const raw: LonLat = [drag.startAnchor[0] + dLon, drag.startAnchor[1] + dLat]
     drag.raw = raw
-    drag.hist.push({ t: e.timeStamp, lon: raw[0], lat: raw[1] })
-    if (drag.hist.length > 8) drag.hist.shift()
     // rubber-band at the polar edge instead of a hard stop
     const cap = maxLat()
     const lat = raw[1] > cap ? cap + rubberband(raw[1] - cap, 6) : raw[1] < -cap ? -cap + rubberband(raw[1] + cap, 6) : raw[1]
@@ -776,39 +772,14 @@ function endDrag(e: PointerEvent) {
   if (!reducedMotion()) { g.lift.set(1, 0.35); g.lift.to(1); kick() }
   if (!d.moved) { if (selected === g && !compareEl.hidden) hideCompare(); else showCompare(g); requestDraw(); return }
 
-  // release velocity from the last ~100 ms of movement
-  const now = e.timeStamp
-  const recent = d.hist.filter(h => now - h.t <= 110)
-  const a = recent[0] ?? d.hist[d.hist.length - 1], b = d.hist[d.hist.length - 1]
-  const dt = (b.t - a.t) / 1000
-  let vLon = 0, vLat = 0
-  if (dt > 0.008 && !reducedMotion()) { vLon = (b.lon - a.lon) / dt; vLat = (b.lat - a.lat) / dt }
-  // judge the flick in screen pixels so it means the same thing at every zoom
-  const pa = projection([a.lon, a.lat]), pb = projection([b.lon, b.lat])
-  const speedPx = pa && pb && dt > 0.008 ? Math.hypot(pb[0] - pa[0], pb[1] - pa[1]) / dt : 0
-  const flick = speedPx > FLICK_MIN_PX
-  const speed = flick ? Math.hypot(vLon, vLat) : 0
+  // No momentum: this is a measuring tool, so a shape lands exactly where it was released. The only motion
+  // left is settling back inside the poles after a rubber-band stretch.
   const cap = maxLat()
-  let targetLon = d.raw[0], targetLat = d.raw[1]
-  if (flick) { // momentum: animate to where the flick is going, at the finger's velocity
-    targetLon += project(vLon, DECEL); targetLat += project(vLat, DECEL)
-    // …but keep the landing spot on screen: a shape that flies off the map is lost, not fun
-    const land = projection([targetLon, Math.max(-cap, Math.min(cap, targetLat))])
-    const here = projection(g.anchor)
-    if (land && here) {
-      const margin = 40
-      const lx = Math.max(margin, Math.min(width - margin, land[0])), ly = Math.max(insetTop + margin, Math.min(height - insetBottom - margin, land[1]))
-      if (lx !== land[0] || ly !== land[1]) {
-        const back = invert([lx, ly])
-        if (back) { targetLon = g.anchor[0] + (((back[0] - g.anchor[0]) + 540) % 360 - 180); targetLat = back[1] }
-      }
-    }
-    g.sx.set(0.85, 0.5); g.sy.set(0.85, 0.5)
-  } else { g.sx.set(1, 0.35); g.sy.set(1, 0.35); vLon = 0; vLat = 0 }
-  targetLat = Math.max(-cap, Math.min(cap, targetLat))
-  if (Math.abs(targetLon - g.anchor[0]) > 1e-6 || Math.abs(targetLat - g.anchor[1]) > 1e-6 || speed > 0) {
+  const targetLat = Math.max(-cap, Math.min(cap, d.raw[1]))
+  if (Math.abs(targetLat - g.anchor[1]) > 1e-6 || Math.abs(d.raw[0] - g.anchor[0]) > 1e-6) {
+    g.sx.set(1, 0.3); g.sy.set(1, 0.3)
     g.sx.jump(g.anchor[0]); g.sy.jump(g.anchor[1])
-    g.sx.to(targetLon, vLon); g.sy.to(targetLat, vLat); kick()
+    g.sx.to(d.raw[0]); g.sy.to(targetLat); kick()
   } else pushHash()
   if (selected === g) fillCompare(g)
   requestDraw()
@@ -1086,7 +1057,7 @@ async function boot() {
   setupZoom()
   resize()
   readHash()
-  hintEl.textContent = ghosts.length ? 'Drag it · flick it · tap to compare' : HINT[currentLevel()]
+  hintEl.textContent = ghosts.length ? 'Drag it anywhere · tap to compare' : HINT[currentLevel()]
   maybeShowWhy()
   setTimeout(() => { void loadWorldLite().then(f => { liteLand = f }) }, 1500)
   new ResizeObserver(() => resize()).observe(stage)
