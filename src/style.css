@@ -155,7 +155,7 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .cmp-def { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.02em; color: var(--ink-faint); margin-top: 2px; }
 .cmp-area { font-family: var(--mono); font-size: 12.5px; color: var(--ink-dim); margin-top: 4px; }
 .cmp-vs { font-family: var(--mono); font-size: 20px; font-weight: 600; letter-spacing: -0.01em; color: var(--gold); padding: 6px 10px; border: 1px solid var(--glass-edge); border-radius: 10px; background: var(--surface-2); white-space: nowrap; }
-.cmp-sentence { margin: 10px 0 0; font-size: 13px; line-height: 1.45; color: var(--ink); }
+.cmp-sentence { margin: 10px 0 0; font-size: 13px; line-height: 1.45; color: var(--ink); min-height: 2.9em; } /* two lines reserved, so the card cannot resize mid-drag and shove the Clear button around */
 .cmp-sentence strong { color: var(--gold); }
 .cmp-actions { margin-top: 8px; display: flex; gap: 8px; }
 .btn { font-family: var(--mono); font-size: 11px; letter-spacing: 0.02em; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line); color: var(--ink-dim); }

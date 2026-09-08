@@ -19,6 +19,8 @@ interface Ghost {
   glide?: LonLat           // destination of an in-flight travel, re-projected every frame
   lift: Spring            // 0 = flat on the map, 1 = lifted, >1 = held
   settled?: () => void
+  underKey?: string        // memo for what the shape is sitting on (see placeUnderShape)
+  underPlace?: Place | null
 }
 
 const COLORS = ['#E8A33D', '#2FA39A', '#E26D5A']
@@ -371,17 +373,53 @@ function removeGhost(g: Ghost) {
 }
 function clearGhosts() { for (const g of ghosts) { g.settled?.(); g.settled = undefined } ghosts = []; selected = null; resetHintIfEmpty(); hideCompare(); $('#clear').hidden = true; requestDraw(); pushHash() }
 
-/** what the ghost is "over": the place under its anchor at the current level, excluding itself. */
-function under(g: Ghost): Place | null {
-  const cur = currentLevel()
-  if (transform.k >= CITY_BORDERS_FROM && g.place.level !== 'continent') { // zoomed into city borders: compare with the city underneath
-    const c = placeAtPoint(g.anchor, 'city')
-    if (c && c.id !== g.place.id && c.name.toLowerCase() !== g.place.name.toLowerCase()) return c
+/**
+ * What is this shape sitting on? The anchor alone is a poor judge: drop a country roughly on target and its
+ * anchor often lands in a gulf, a lake or just off the coast, which used to read as "Open water" while the
+ * shape plainly covered a country. So when the anchor hits nothing, sample points spread across the shape
+ * itself and take whichever place most of them land in.
+ */
+function placeUnderShape(g: Ghost, level: Level): Place | null {
+  const direct = placeAtPoint(g.anchor, level)
+  if (direct) return direct
+  const geom = g.feature.geometry
+  const rings = (geom.type === 'Polygon' ? [geom.coordinates] : geom.coordinates).map(poly => poly[0])
+  if (!rings.length) return null
+  const ring = rings.reduce((a, b) => (b.length > a.length ? b : a))
+  const votes = new Map<string, { place: Place; n: number }>()
+  const SAMPLES = 16
+  for (let i = 0; i < SAMPLES; i++) {
+    const v = ring[Math.floor((i * ring.length) / SAMPLES)]
+    if (!v) continue
+    const pt: LonLat = [g.anchor[0] + (v[0] - g.anchor[0]) * 0.55, g.anchor[1] + (v[1] - g.anchor[1]) * 0.55] // pull inside the outline
+    const hit = placeAtPoint(pt, level)
+    if (!hit) continue
+    const e = votes.get(hit.id) ?? { place: hit, n: 0 }
+    e.n++; votes.set(hit.id, e)
   }
-  const lvl: Level = g.place.level === 'continent' ? 'continent' : cur === 'continent' ? 'continent' : 'country'
-  const p = placeAtPoint(g.anchor, lvl)
-  if (!p || p.id === g.place.id || p.name.toLowerCase() === g.place.name.toLowerCase()) return null // Singapore-the-city on Singapore-the-country
+  let best: { place: Place; n: number } | null = null
+  for (const e of votes.values()) if (!best || e.n > best.n || (e.n === best.n && e.place.areaKm2 > best.place.areaKm2)) best = e
+  return best && best.n >= 3 ? best.place : null // a lone hit is a clipped corner, not what the shape is on
+}
+
+/** The place a ghost is being compared against: what it sits on, excluding itself and its namesake. */
+function under(g: Ghost): Place | null {
+  const key = `${g.anchor[0].toFixed(3)},${g.anchor[1].toFixed(3)}|${currentLevel()}|${transform.k >= CITY_BORDERS_FROM ? 'c' : ''}`
+  if (g.underKey === key) return g.underPlace ?? null
+  const p = computeUnder(g)
+  g.underKey = key; g.underPlace = p
   return p
+}
+const isSelf = (g: Ghost, p: Place | null) => !!p && (p.id === g.place.id || p.name.toLowerCase() === g.place.name.toLowerCase())
+function computeUnder(g: Ghost): Place | null {
+  if (transform.k >= CITY_BORDERS_FROM && g.place.level !== 'continent') { // zoomed into city borders: compare with the city underneath
+    const c = placeUnderShape(g, 'city')
+    if (c && !isSelf(g, c)) return c
+  }
+  const cur = currentLevel()
+  const lvl: Level = g.place.level === 'continent' ? 'continent' : cur === 'continent' ? 'continent' : 'country'
+  const p = placeUnderShape(g, lvl)
+  return isSelf(g, p) ? null : p // Singapore-the-city on Singapore-the-country
 }
 
 /**
@@ -732,7 +770,7 @@ function fillCompare(g: Ghost) {
       : `<strong>${esc(g.place.name)}</strong> is <strong>${r.times}</strong> the size of ${esc(u.name)}. ${esc(u.name)} would cover <strong>${inv.pct}</strong> of it.`
   } else {
     const lvl: Level = g.place.level === 'continent' ? 'continent' : currentLevel() === 'continent' ? 'continent' : 'country'
-    const home = placeAtPoint(g.anchor, lvl) ?? (transform.k >= CITY_BORDERS_FROM ? placeAtPoint(g.anchor, 'city') : null)
+    const home = placeUnderShape(g, lvl) ?? (transform.k >= CITY_BORDERS_FROM ? placeUnderShape(g, 'city') : null)
     if (home) { // sitting on itself (or its namesake, e.g. Singapore the city on Singapore the country)
       $('#cmp-b-name').textContent = 'Home'; $('#cmp-b-def').textContent = 'its own footprint'; $('#cmp-b-area').textContent = ''
       $('#cmp-ratio').textContent = '1×'
@@ -1136,5 +1174,5 @@ async function boot() {
   requestDraw()
 }
 // debug hook, dev only
-if (import.meta.env.DEV) (window as unknown as { __tsm: unknown }).__tsm = { project: (ll: LonLat) => projection(ll), get pal() { return pal }, get ghosts() { return ghosts }, stats, get transform() { return transform }, get baseT() { return baseT }, get baseKey() { return baseKey }, baseKeyNow, get baseTimer() { return baseTimer }, renderBase, draw, get base() { return base }, get visibleCities() { return visibleCities.map(v => ({ n: v.c.name, loaded: !!v.c.feature })) }, get citiesLoaded() { return citiesLoaded }, setProjection, get morph() { return morphDebug }, viewForPair: (a: string, b: string) => { const t = viewForPair(world.byId.get(a)!, world.byId.get(b)!); select(canvas).call(zoomBehavior.transform, t); return [t.k, t.x, t.y] }, screenPos, get world() { return world }, get morphing() { return morphing }, get lastZoom() { return lastZoom }, setView: (k: number, lon: number, lat: number) => { const b = projection; applyTransform(); const base = (() => { const t = transform; const p = b([lon, lat])!; return [(p[0] - t.x) / t.k, (p[1] - t.y) / t.k] })(); const visH = height - insetTop - insetBottom; select(canvas).call(zoomBehavior.transform, zoomIdentity.translate(width / 2 - k * base[0], insetTop + visH / 2 - k * base[1]).scale(k)) } }
+if (import.meta.env.DEV) (window as unknown as { __tsm: unknown }).__tsm = { project: (ll: LonLat) => projection(ll), get pal() { return pal }, get ghosts() { return ghosts }, stats, get transform() { return transform }, get baseT() { return baseT }, get baseKey() { return baseKey }, baseKeyNow, get baseTimer() { return baseTimer }, renderBase, draw, get base() { return base }, get visibleCities() { return visibleCities.map(v => ({ n: v.c.name, loaded: !!v.c.feature })) }, get citiesLoaded() { return citiesLoaded }, setProjection, get morph() { return morphDebug }, viewForPair: (a: string, b: string) => { const t = viewForPair(world.byId.get(a)!, world.byId.get(b)!); select(canvas).call(zoomBehavior.transform, t); return [t.k, t.x, t.y] }, screenPos, get world() { return world }, contains, get morphing() { return morphing }, get lastZoom() { return lastZoom }, setView: (k: number, lon: number, lat: number) => { const b = projection; applyTransform(); const base = (() => { const t = transform; const p = b([lon, lat])!; return [(p[0] - t.x) / t.k, (p[1] - t.y) / t.k] })(); const visH = height - insetTop - insetBottom; select(canvas).call(zoomBehavior.transform, zoomIdentity.translate(width / 2 - k * base[0], insetTop + visH / 2 - k * base[1]).scale(k)) } }
 boot().catch(err => { hintEl.textContent = 'Could not load map data'; console.error(err) })
