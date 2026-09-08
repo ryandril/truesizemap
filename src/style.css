@@ -116,6 +116,9 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .brand { min-width: 0; }
 .brand h1 { font-family: var(--serif); font-weight: 500; font-size: 21px; letter-spacing: -0.02em; margin: 0; line-height: 1.05; }
 .hook { margin: 4px 0 0; font-size: 12.5px; color: var(--ink-dim); line-height: 1.35; }
+#hook-text { transition: opacity .18s var(--ease-out); }
+#hook-text.swapping { opacity: 0; }
+@media (prefers-reduced-motion: reduce) { #hook-text { transition: none; } }
 .link { color: var(--gold); border-bottom: 1px dotted var(--gold-deep); display: inline-block; }
 
 .top-right { display: flex; align-items: center; gap: 8px; }

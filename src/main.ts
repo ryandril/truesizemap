@@ -341,6 +341,21 @@ function setAnchor(g: Ghost, a: LonLat) {
   g.feature = same ? g.place.feature! : { type: 'Feature', properties: {}, geometry: moveGeometry(g.place.feature!.geometry, g.place.label, g.anchor) }
   mark('move', T0)
 }
+// the standfirst has to mean the right thing for whichever map is on screen
+const HOOK: Record<ProjName, string> = {
+  mercator: 'The UN just voted 164–1 to retire this map.',
+  equalearth: 'This is the map the UN voted for, 164–1.',
+}
+let hookSwap = 0
+function setHook(p: ProjName) {
+  const el = $('#hook-text')
+  if (el.textContent === HOOK[p]) return
+  if (reducedMotion()) { el.textContent = HOOK[p]; return }
+  el.classList.add('swapping')
+  clearTimeout(hookSwap)
+  hookSwap = window.setTimeout(() => { el.textContent = HOOK[p]; el.classList.remove('swapping') }, 180)
+}
+
 const HINT: Record<Level, string> = { continent: 'Tap a continent, then drag it', country: 'Tap a country, then drag it', city: 'Tap a city name or search one' }
 function resetHintIfEmpty() { if (!ghosts.length) { hintEl.textContent = HINT[currentLevel()]; hintEl.classList.remove('off') } }
 function removeGhost(g: Ghost) {
@@ -871,6 +886,7 @@ function setProjection(p: ProjName, animate = true) {
   const from = projName
   projName = p
   document.querySelectorAll<HTMLButtonElement>('[data-proj]').forEach(x => { const on = x.dataset.proj === p; x.classList.toggle('on', on); x.setAttribute('aria-checked', String(on)) })
+  setHook(p)
   if (!animate || reducedMotion() || !world) {
     transform = zoomIdentity; select(canvas).call(zoomBehavior.transform, zoomIdentity)
     projection = makeProjection()
