@@ -48,6 +48,7 @@ let projection: GeoProjection
 let baseScale = 1
 let baseTranslate: [number, number] = [0, 0]
 let worldY: [number, number] = [0, 1] // top/bottom of the drawn world at k=1, in base px (north/south pan limits)
+let worldX: [number, number] = [0, 1] // left/right ditto, used where the map does not wrap (Equal Earth)
 let transform: ZoomTransform = zoomIdentity
 let levelOverride: Level | null = null
 let overrideBand = -1
@@ -92,6 +93,8 @@ function makeProjection(): GeoProjection {
   baseTranslate = p.translate() as [number, number]
   const lat = projName === 'mercator' ? 85 : 90
   worldY = [p([0, lat])![1], p([0, -lat])![1]]
+  const l = p([-179.99, 0]), r = p([179.99, 0])
+  if (l && r) worldX = [l[0], r[0]]
   return p
 }
 /** A fitted projection for the current viewport (does not touch globals). */
@@ -752,7 +755,8 @@ let pressXY: [number, number] | null = null
 function setupZoom() {
   zoomBehavior = d3zoom<HTMLCanvasElement, unknown>()
     .scaleExtent([1, MAX_ZOOM])
-    // north/south: never pan past the map's top or bottom edge; east/west stays endless (the world wraps)
+    // Never pan past the edge of the drawn world. East/west is only clamped where the map does not wrap:
+    // Mercator tiles endlessly, Equal Earth is a single oval that would otherwise slide off screen.
     .constrain((t) => {
       const visTop = insetTop, visBot = height - insetBottom
       const top = t.k * worldY[0] + t.y, bot = t.k * worldY[1] + t.y
@@ -760,7 +764,14 @@ function setupZoom() {
       if (bot - top <= visBot - visTop) y = (visTop + visBot) / 2 - t.k * (worldY[0] + worldY[1]) / 2 // world shorter than the view: centre it
       else if (top > visTop) y = visTop - t.k * worldY[0]
       else if (bot < visBot) y = visBot - t.k * worldY[1]
-      return y === t.y ? t : zoomIdentity.translate(t.x, y).scale(t.k)
+      let x = t.x
+      if (projName !== 'mercator') {
+        const left = t.k * worldX[0] + t.x, right = t.k * worldX[1] + t.x
+        if (right - left <= width) x = width / 2 - t.k * (worldX[0] + worldX[1]) / 2 // narrower than the view: centre it
+        else if (left > 0) x = -t.k * worldX[0]
+        else if (right < width) x = width - t.k * worldX[1]
+      }
+      return x === t.x && y === t.y ? t : zoomIdentity.translate(x, y).scale(t.k)
     })
     .filter((ev: Event) => {
       const e = ev as PointerEvent | WheelEvent | TouchEvent
