@@ -1,61 +1,98 @@
 # The True Size Map
 
-**https://truesizemap.ryandrilowell.com**
+**[truesizemap.ryandrilowell.com](https://truesizemap.ryandrilowell.com)**
 
-On 4 September 2026 the UN General Assembly adopted the “Correct the Map” resolution (164–1), encouraging the
-[Equal Earth](https://en.wikipedia.org/wiki/Equal_Earth_projection) projection over Mercator wherever relative
-size matters. This site lets you *feel* why: lift any country or continent off a Mercator map, drag it anywhere
-and watch it re-size to its true relative area, then flip the whole map to Equal Earth.
+On 4 September 2026 the UN General Assembly adopted the “Correct the Map” resolution, 164 votes to 1. It asks
+schools, governments and technology companies to use the [Equal Earth](https://en.wikipedia.org/wiki/Equal_Earth_projection)
+projection, where every country is drawn at its true relative area, rather than defaulting to Mercator, the 1569
+navigation chart most of us grew up with.
 
-- Up to three shapes at once, each labelled with its ratio to whatever it is sitting on.
-- Tap a shape for a compare card (areas in km², ratio both ways).
-- Presets: Greenland → Africa, Europe → Africa, Alaska → Mexico.
-- “Copy link” encodes the current shapes and projection in the URL.
-- Phone-first, no framework: Vite + TypeScript + D3, rendered on a `<canvas>`.
+Reading that Greenland is not the size of Africa is one thing. Feeling it is another. So: lift any country,
+continent or city off the map, drag it anywhere, and watch it resize as it travels. Then flip the whole map to
+Equal Earth and watch the distortion go.
+
+## What it does
+
+- **Drag anything.** 243 countries and territories, 7 continents, 504 major cities. Up to three shapes at once,
+  each labelled with its ratio to whatever it is sitting on.
+- **Tap a shape** for a card giving both areas and the ratio each way.
+- **Flip projections.** Mercator and Equal Earth blend into one another, keeping your zoom and centre.
+- **Cities appear as real boundaries** once you zoom in far enough, fetched only when needed.
+- **Presets** follow the level you are on, from Greenland → Africa down to New York → Tokyo.
+- **Copy link** encodes the shapes and projection, so a link opens on exactly what you were looking at.
+- Phone first, installable to a home screen, light and dark. No framework: Vite, TypeScript and D3 on a `<canvas>`.
 
 ## Data
 
-- **Countries** — [Natural Earth](https://www.naturalearthdata.com/) 1:50m admin-0 *countries* (public domain).
-  Dependencies such as Greenland, Puerto Rico or Hong Kong are separate shapes; Alaska is added from admin-1.
-  Names and borders are Natural Earth's own.
-- **Continents** — seven, merged from Natural Earth's continent tags. Russia is cut at the Urals / Ural river
-  (`scripts/build-countries.mjs`, `URAL_CUT`) so European and Asian Russia count toward the right continent.
-  France's overseas departments, Hawaii, the Canary Islands and the Dutch Caribbean are re-assigned by location.
-  All other transcontinental countries stay whole.
-- **Areas** are computed from the drawn boundaries on a sphere (R = 6371.0088 km), so they differ slightly from
-  official figures but always agree with the picture.
-- **Cities** (OpenStreetMap administrative boundaries, ODbL) — coming next.
+**Countries** come from [Natural Earth](https://www.naturalearthdata.com/) 1:50m admin-0 *map units* (public
+domain), so Greenland, Hong Kong and Puerto Rico are separate shapes; Alaska is added from admin-1. Names and
+borders are Natural Earth's own.
 
-Rebuild the data (writes `src/assets/world.json`): `npm run data:countries` (expects the raw GeoJSON in `data/raw/`, see the script header).
+**Continents** are seven, merged from Natural Earth's continent tags, with Russia cut at the Urals and the Ural
+river (`URAL_CUT` in `scripts/build-countries.mjs`) so each half counts toward the right continent. France's
+overseas departments, Hawaii, the Canary Islands and the Dutch Caribbean are reassigned by location; every other
+transcontinental country stays whole.
+
+**Cities** are OpenStreetMap administrative boundaries (ODbL, © OpenStreetMap contributors), matched to Natural
+Earth's populated places by Wikidata ID. Only major cities ship: population of a million or more, or a national
+capital above three hundred thousand, with a boundary between 15 and 40,000 km². That threshold exists because
+a lot of official boundaries describe something other than the city — Riyadh's is a whole province, Manila's is
+just the old town — and a wrong number is worse than a missing one. `data/cities-pruned.md` lists what was cut.
+
+**Areas** are computed from the drawn boundaries on a sphere (R = 6371.0088 km), so they differ slightly from
+published figures but always agree with the picture on screen. City boundaries are clipped to the coastline
+first, because many of them include open water: Tokyo's official boundary runs to some 42,000 km² of Pacific,
+against about 2,274 km² of land. Labels say “land only” where clipping removed a meaningful share.
+
+### Rebuilding the data
+
+```bash
+npm run data:countries   # → src/assets/world.json + world-lite.json (coarse copy used during animation)
+npm run data:cities      # → public/cities/<Qid>.json + data/cities-index.json  (hours; resumable, cached)
+npm run data:prune       # → src/assets/cities.json, the major-city subset the site ships
+```
+
+The city pipeline resolves each place to an OpenStreetMap relation via Wikidata's P402, then Overpass, then
+Nominatim for the largest leftovers; geometry comes from polygons.openstreetmap.fr with the OSM API as a
+fallback. Everything is cached under `data/cache/`, so a re-run is cheap and the full set of about 4,500 cities
+stays reproducible. Raw inputs live in `data/raw/` — see the header of each script for what to download.
 
 ## Develop
 
 ```bash
 npm install
-npm run dev
-npm run build   # type-checks, then builds to dist/
+npm run dev              # http://localhost:5177
+npm run build            # type-checks, then builds to dist/
 ```
 
-Deploys to GitHub Pages from `main` via `.github/workflows/deploy.yml`.
+In development the app exposes a `window.__tsm` hook (projection, ghosts, springs, render entry points), which
+is how the tests below inspect state that never reaches the DOM.
+
+## Tests
+
+Playwright drives a real headless Chromium, once as a touch phone and once as a desktop with a mouse.
+
+```bash
+npm run build
+npx vite preview --port 4173 --strictPort &
+node tests/e2e.mjs       # 13 scenarios × 2 devices → tests/report.md + tests/shots/
+```
+
+`tests/measure-anim.mjs` samples an animation frame by frame and reports the per-frame pixel step, so
+“is it smooth?” is a measurement rather than an opinion. `tests/repro-drag.mjs` and
+`tests/repro-archipelago.mjs` are pinned reproductions of two bugs worth not repeating: momentum carrying a
+dropped shape most of a continent past where it was released, and dropping an archipelago lifting a second,
+unwanted shape.
+
+## Deploy
+
+Pushing to `main` builds and publishes to GitHub Pages via `.github/workflows/deploy.yml`.
+
+The custom domain does not use GitHub's own certificate — it never issued one for this host. Instead the domain
+resolves to a small VPS running Caddy, which terminates TLS and reverse-proxies to GitHub Pages by `Host`
+header. Deploys are unaffected; only the edge differs.
 
 ## Licence
 
-Code: MIT. Natural Earth data: public domain. OpenStreetMap-derived data (when added): ODbL, © OpenStreetMap contributors.
-
-## Cities
-
-`npm run data:cities` matches every Natural Earth populated place that carries a Wikidata ID (~7,100) to its
-OpenStreetMap boundary relation: Wikidata's P402 (OSM relation ID) first, then Overpass for relations tagged with the
-Wikidata ID, then Nominatim by name for the biggest leftovers. Geometry comes from polygons.openstreetmap.fr (falling
-back to the OSM API), tags from the OSM API. Everything is cached in `data/cache/` so the run is resumable. Each boundary is simplified to ~700 points and written to `public/cities/<Qid>.json`, fetched by the
-app only when that city is lifted; `src/assets/cities.json` is the search/label index. When a Wikidata ID maps to
-several relations the pick is: administrative boundary → `place=city` → the most local `admin_level`. The
-"definition" shown in labels comes from the relation's `place` / `border_type` / `admin_level` tags.
-Many official boundaries include territorial water (Tokyo's runs to 42,000 km² of Pacific), so each polygon is
-clipped to Natural Earth 10m land and the label says "land only" when that removed ≥5%. Coastline precision is
-Natural Earth's, so small reclaimed-land cities (Singapore) read a little low. `data/cities-report.md` lists the misses.
-
-The site ships only **major cities** (`npm run data:prune`): population ≥ 1M, or national capitals ≥ 300k, with a
-boundary between 15 and 40,000 km². That drops whole-province matches (Chongqing, Riyadh) and old-town cores
-(Manila's 43 km² city proper, Athens municipality) whose numbers would mislead; `data/cities-pruned.md` lists them.
-The full ~4,500-city set is still reproducible from the pipeline cache.
+Code is MIT. Natural Earth data is public domain. OpenStreetMap-derived data is ODbL,
+© OpenStreetMap contributors.
