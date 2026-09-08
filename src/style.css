@@ -219,7 +219,7 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
   .top { gap: 6px; padding-left: 10px; padding-right: 10px; }
   .top-right { gap: 6px; }
   .proj .seg { padding-left: 9px; padding-right: 9px; letter-spacing: 0; font-size: 11px; }
-  .icon-btn.theme { width: 38px; height: 38px; font-size: 13px; }
+  .icon-btn.theme { width: 40px; height: 40px; font-size: 13px; }
   .brand h1 { font-size: 17px; }
 }
 @media (max-height: 480px) { /* phone in landscape: give the map the room */
