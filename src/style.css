@@ -112,7 +112,8 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 
 /* ---------- chrome (translucent, content passes underneath) ---------- */
 .chrome { position: absolute; left: 0; right: 0; z-index: 3; background: var(--glass); backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur); }
-.top { top: 0; display: grid; grid-template-columns: 1fr auto; align-items: start; gap: 8px 12px; padding: 12px 14px 10px; border-bottom: 1px solid var(--glass-edge); }
+.top { top: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 8px 12px; padding: 12px 14px 10px; border-bottom: 1px solid var(--glass-edge); }
+.brand { min-width: 0; }
 .brand h1 { font-family: var(--serif); font-weight: 500; font-size: 21px; letter-spacing: -0.02em; margin: 0; line-height: 1.05; }
 .hook { margin: 4px 0 0; font-size: 12.5px; color: var(--ink-dim); line-height: 1.35; }
 .link { color: var(--gold); border-bottom: 1px dotted var(--gold-deep); display: inline-block; }
@@ -207,12 +208,25 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 
 /* touch screens: 44px-class targets for the controls people tap most */
 @media (pointer: coarse) {
-  .seg { padding: 11px 13px; font-size: 12px; }
-  .chip { padding: 10px 13px; font-size: 12px; }
-  .btn { padding: 9px 12px; font-size: 12px; }
-  .icon-btn { width: 40px; height: 40px; }
-  #search { height: 42px; font-size: 13.5px; }
-  .compare .close, .why-card .close { width: 40px; height: 40px; }
+  .seg { padding: 13px 12px; font-size: 12px; }
+  .chip { padding: 12px 13px; font-size: 12px; }
+  .btn { padding: 11px 12px; font-size: 12px; }
+  .icon-btn, .theme { width: 44px; height: 44px; }
+  #search { height: 44px; font-size: 13.5px; }
+  .compare .close, .why-card .close { width: 44px; height: 44px; }
+}
+@media (max-width: 430px) {
+  .top { gap: 6px; padding-left: 10px; padding-right: 10px; }
+  .top-right { gap: 6px; }
+  .proj .seg { padding-left: 9px; padding-right: 9px; letter-spacing: 0; font-size: 11px; }
+  .icon-btn.theme { width: 38px; height: 38px; font-size: 13px; }
+  .brand h1 { font-size: 17px; }
+}
+@media (max-height: 480px) { /* phone in landscape: give the map the room */
+  .presets, .hint { display: none; }
+  .controls { padding-top: 6px; padding-bottom: calc(6px + var(--safe-b)); }
+  .top { padding-top: 6px; padding-bottom: 6px; }
+  .hook { display: none; }
 }
 
 /* ---------- accessibility preferences ---------- */

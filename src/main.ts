@@ -215,7 +215,10 @@ async function liftPlace(place: Place, anchor?: LonLat, animateLift = true): Pro
 /** If a lifted shape is a speck at the current zoom (small cities at world view), zoom in on it. */
 function zoomToSee(g: Ghost) {
   const size = bodySizePx(g.place) * transform.k
-  if (size >= 28) return
+  if (size >= 28) { // big enough already; just make sure it is on screen
+    if (!onScreenPt(screenPos(g.anchor), 10)) animateZoom(viewTransform(transform.k, g.anchor), 550)
+    return
+  }
   const visH = height - insetTop - insetBottom
   const want = Math.min(width, visH) * 0.22
   const k = Math.max(1, Math.min(MAX_ZOOM, transform.k * (want / Math.max(size, 1))))
@@ -249,7 +252,7 @@ function animateZoom(target: ZoomTransform, ms = 650): Promise<void> {
     const u = easeCubicInOut(Math.min(1, (now - t0) / dur))
     const v = i(u); const k = Math.min(width, visH) / v[2]
     select(canvas).call(zoomBehavior.transform, zoomIdentity.translate(cx - v[0] * k, cy - v[1] * k).scale(k))
-    if (u < 1) zoomAnim = requestAnimationFrame(step); else { zoomDone = null; resolve() }
+    if (u < 1) zoomAnim = requestAnimationFrame(step); else { select(canvas).call(zoomBehavior.transform, target); zoomDone = null; resolve() }
   }
   zoomAnim = requestAnimationFrame(step)
   })
@@ -397,7 +400,8 @@ function worldCopies(): number[] {
   const w = worldWidth()
   const tx = projection.translate()[0]
   const out: number[] = []
-  for (let n = -2; n <= 2; n++) { const l = tx + n * w - w / 2, r = tx + n * w + w / 2; if (r > 0 && l < width) out.push(n * w) }
+  const n0 = Math.floor((0 - tx - w / 2) / w), n1 = Math.ceil((width - tx + w / 2) / w)
+  for (let n = n0; n <= n1; n++) { const l = tx + n * w - w / 2, r = tx + n * w + w / 2; if (r > 0 && l < width) out.push(n * w) }
   return out.length ? out : [0]
 }
 /** Run `fn` once per visible copy of the world with the projection shifted to it. */
@@ -601,7 +605,7 @@ function draw() {
   mark('labels', T2)
   mark('total', T0)
   syncLevelUI()
-  $('#reset').hidden = transform.k === 1 && transform.x === 0 && transform.y === 0 && ghosts.length === 0
+  $('#reset').hidden = Math.abs(transform.k - 1) < 1e-6 && Math.abs(transform.x) < 0.5 && Math.abs(transform.y) < 0.5 && ghosts.length === 0
 }
 
 // Labels are built from Natural Earth names (static, shipped with the site) and always pass through esc().
@@ -776,6 +780,17 @@ function endDrag(e: PointerEvent) {
   let targetLon = d.raw[0], targetLat = d.raw[1]
   if (speed > FLICK_MIN) { // momentum: animate to where the flick is going, at the finger's velocity
     targetLon += project(vLon, DECEL); targetLat += project(vLat, DECEL)
+    // …but keep the landing spot on screen: a shape that flies off the map is lost, not fun
+    const land = projection([targetLon, Math.max(-cap, Math.min(cap, targetLat))])
+    const here = projection(g.anchor)
+    if (land && here) {
+      const margin = 40
+      const lx = Math.max(margin, Math.min(width - margin, land[0])), ly = Math.max(insetTop + margin, Math.min(height - insetBottom - margin, land[1]))
+      if (lx !== land[0] || ly !== land[1]) {
+        const back = invert([lx, ly])
+        if (back) { targetLon = g.anchor[0] + (((back[0] - g.anchor[0]) + 540) % 360 - 180); targetLat = back[1] }
+      }
+    }
     g.sx.set(0.85, 0.5); g.sy.set(0.85, 0.5)
   } else { g.sx.set(1, 0.35); g.sy.set(1, 0.35); vLon = 0; vLat = 0 }
   targetLat = Math.max(-cap, Math.min(cap, targetLat))
@@ -981,12 +996,7 @@ function pickResult(i: number) {
   const p = results[i]; if (!p) return
   resultsEl.hidden = true; searchEl.value = ''; searchEl.blur()
   setLevel(p.level)
-  void liftPlace(p).then(g => {
-    if (!g) return
-    const xy = projection(g.anchor)
-    if (!xy || xy[0] < 0 || xy[0] > width || xy[1] < insetTop || xy[1] > height - insetBottom) animateZoom(zoomIdentity, 450)
-    showCompare(g)
-  })
+  void liftPlace(p).then(g => { if (g) showCompare(g) })
 }
 
 // share

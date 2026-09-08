@@ -3,3 +3,5 @@ dist
 data/raw
 data/cache
 .DS_Store
+tests/shots/
+tests/*.log
