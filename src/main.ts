@@ -183,6 +183,20 @@ function ghostAtPoint(p: LonLat): Ghost | null {
   for (let i = ghosts.length - 1; i >= 0; i--) if (contains(ghosts[i].feature, p)) return ghosts[i]
   return null
 }
+/**
+ * Same question, asked in screen pixels with a little tolerance. Exact containment is unusable for thin or
+ * scattered shapes: a press 40px from Indonesia's centre lands in the sea between its islands, so the shape
+ * could neither be picked up nor recognised when released. Tests the point plus a small ring around it.
+ */
+const GRAB_PX = 12
+function ghostAtPx(xy: [number, number]): Ghost | null {
+  const pts: [number, number][] = [xy]
+  for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2; pts.push([xy[0] + Math.cos(a) * GRAB_PX, xy[1] + Math.sin(a) * GRAB_PX]) }
+  for (let i = ghosts.length - 1; i >= 0; i--) {
+    for (const p of pts) { const geo = invert(p); if (geo && contains(ghosts[i].feature, geo)) return ghosts[i] }
+  }
+  return null
+}
 function invert(xy: [number, number]): LonLat | null {
   if (!projection || !world || morphing || !projection.invert) return null
   for (const dx of worldCopies()) {
@@ -819,8 +833,7 @@ function setupZoom() {
       // d3-zoom sees raw touch events on phones: read the finger's position from touches[0], not clientX
       const src = ('touches' in e && e.touches.length ? e.touches[0] : e) as { clientX: number; clientY: number }
       const r = canvas.getBoundingClientRect()
-      const geo = invert([src.clientX - r.left, src.clientY - r.top])
-      return !(geo && ghostAtPoint(geo)) // a press that starts on a ghost is a drag, not a pan
+      return !ghostAtPx([src.clientX - r.left, src.clientY - r.top]) // a press that starts on a ghost is a drag, not a pan
     })
     .on('start', (ev) => { if (ev.sourceEvent) { cancelAnimationFrame(zoomAnim); zoomDone?.(); zoomDone = null } })
     .on('zoom', (ev) => {
@@ -837,7 +850,7 @@ canvas.addEventListener('pointerdown', (e) => {
   if (e.button !== 0 || !e.isPrimary) return
   const xy: [number, number] = [e.offsetX, e.offsetY]
   const geo = invert(xy); if (!geo) return
-  const g = ghostAtPoint(geo)
+  const g = ghostAtPx(xy)
   if (!g) {
     // instant press feedback on the place under the finger; a pan will cancel it
     pressPlace = placeAtPoint(geo, currentLevel()); pressXY = xy
@@ -875,14 +888,16 @@ canvas.addEventListener('pointermove', (e) => {
     if (frame) return // a draw is already queued this frame; the next move will re-test
     const geo = invert(xy)
     const overDot = !!cityAtPixel(xy)
-    const p = geo && !ghostAtPoint(geo) && !overDot ? placeAtPoint(geo, currentLevel()) : null
+    const p = geo && !ghostAtPx(xy) && !overDot ? placeAtPoint(geo, currentLevel()) : null
     if (p !== hoverPlace) { hoverPlace = p; requestDraw() }
     canvas.style.cursor = p || overDot ? 'pointer' : 'grab'
   }
 })
+let ghostInteractionAt = 0 // a click within a moment of releasing a shape is the browser's synthetic one
 function endDrag(e: PointerEvent) {
   pressPlace = null; pressXY = null
   if (!drag) return
+  ghostInteractionAt = performance.now()
   const d = drag; drag = null
   canvas.classList.remove('dragging')
   try { canvas.releasePointerCapture(e.pointerId) } catch { /* noop */ }
@@ -909,8 +924,10 @@ canvas.addEventListener('pointerleave', () => { if (hoverPlace) { hoverPlace = n
 // tap on the base map (d3-zoom swallows clicks that panned)
 canvas.addEventListener('click', (e) => {
   if (drag) return
-  const geo = invert([e.offsetX, e.offsetY]); if (!geo) return
-  if (ghostAtPoint(geo)) return // handled by pointerup
+  if (performance.now() - ghostInteractionAt < 500) return // the pointerup already handled this shape
+  const xy: [number, number] = [e.offsetX, e.offsetY]
+  const geo = invert(xy); if (!geo) return
+  if (ghostAtPx(xy)) return // handled by pointerup
   if (currentLevel() === 'city') {
     const inside = placeAtPoint(geo, 'city') ?? cityAtPixel([e.offsetX, e.offsetY])
     if (inside) { void liftPlace(inside); return }
@@ -1174,5 +1191,5 @@ async function boot() {
   requestDraw()
 }
 // debug hook, dev only
-if (import.meta.env.DEV) (window as unknown as { __tsm: unknown }).__tsm = { project: (ll: LonLat) => projection(ll), get pal() { return pal }, get ghosts() { return ghosts }, stats, get transform() { return transform }, get baseT() { return baseT }, get baseKey() { return baseKey }, baseKeyNow, get baseTimer() { return baseTimer }, renderBase, draw, get base() { return base }, get visibleCities() { return visibleCities.map(v => ({ n: v.c.name, loaded: !!v.c.feature })) }, get citiesLoaded() { return citiesLoaded }, setProjection, get morph() { return morphDebug }, viewForPair: (a: string, b: string) => { const t = viewForPair(world.byId.get(a)!, world.byId.get(b)!); select(canvas).call(zoomBehavior.transform, t); return [t.k, t.x, t.y] }, screenPos, get world() { return world }, contains, get morphing() { return morphing }, get lastZoom() { return lastZoom }, setView: (k: number, lon: number, lat: number) => { const b = projection; applyTransform(); const base = (() => { const t = transform; const p = b([lon, lat])!; return [(p[0] - t.x) / t.k, (p[1] - t.y) / t.k] })(); const visH = height - insetTop - insetBottom; select(canvas).call(zoomBehavior.transform, zoomIdentity.translate(width / 2 - k * base[0], insetTop + visH / 2 - k * base[1]).scale(k)) } }
+if (import.meta.env.DEV) (window as unknown as { __tsm: unknown }).__tsm = { project: (ll: LonLat) => projection(ll), get pal() { return pal }, get ghosts() { return ghosts }, stats, get transform() { return transform }, get baseT() { return baseT }, get baseKey() { return baseKey }, baseKeyNow, get baseTimer() { return baseTimer }, renderBase, draw, get base() { return base }, get visibleCities() { return visibleCities.map(v => ({ n: v.c.name, loaded: !!v.c.feature })) }, get citiesLoaded() { return citiesLoaded }, setProjection, get morph() { return morphDebug }, viewForPair: (a: string, b: string) => { const t = viewForPair(world.byId.get(a)!, world.byId.get(b)!); select(canvas).call(zoomBehavior.transform, t); return [t.k, t.x, t.y] }, screenPos, get world() { return world }, contains, ghostAtPoint, ghostAtPx, invert, lift: (p: Place) => addGhost(p), get morphing() { return morphing }, get lastZoom() { return lastZoom }, setView: (k: number, lon: number, lat: number) => { const b = projection; applyTransform(); const base = (() => { const t = transform; const p = b([lon, lat])!; return [(p[0] - t.x) / t.k, (p[1] - t.y) / t.k] })(); const visH = height - insetTop - insetBottom; select(canvas).call(zoomBehavior.transform, zoomIdentity.translate(width / 2 - k * base[0], insetTop + visH / 2 - k * base[1]).scale(k)) } }
 boot().catch(err => { hintEl.textContent = 'Could not load map data'; console.error(err) })
