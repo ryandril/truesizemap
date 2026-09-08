@@ -15,6 +15,8 @@ interface Ghost {
   color: string
   feature: PolyFeature    // moved geometry
   sx: Spring; sy: Spring  // lon / lat springs (independent axes)
+  px?: Spring; py?: Spring // screen-space springs used while travelling (see glideTo)
+  glide?: LonLat           // destination of an in-flight travel, re-projected every frame
   lift: Spring            // 0 = flat on the map, 1 = lifted, >1 = held
   settled?: () => void
 }
@@ -143,7 +145,14 @@ function bandFor(k: number) { return ZOOM_BANDS.findIndex(b => k < b.max) }
 function currentLevel(): Level {
   return levelOverride ?? ZOOM_BANDS[bandFor(transform.k)].level
 }
-function setLevel(l: Level) { levelOverride = l; overrideBand = bandFor(transform.k); syncLevelUI(); requestDraw() }
+function setLevel(l: Level) { levelOverride = l; overrideBand = bandFor(transform.k); syncLevelUI(); deferFullBase(); requestDraw() }
+/** Re-render the base cheaply now and at full detail once things settle — a full render costs ~400 ms. */
+function deferFullBase() {
+  if (!liteLand) return
+  zooming = true
+  clearTimeout(baseTimer)
+  baseTimer = window.setTimeout(() => { baseTimer = 0; zooming = false; renderBase(); requestDraw() }, 160)
+}
 let hintLevel: Level | null = null
 function syncLevelUI() {
   const l = currentLevel()
@@ -314,7 +323,7 @@ function addGhost(place: Place, anchor?: LonLat, animateLift = true): Ghost {
   const g: Ghost = {
     key: ++ghostSeq, place, anchor: a, color, feature: place.feature!,
     sx: new Spring(a[0], 1, 0.4), sy: new Spring(a[1], 1, 0.4),
-    lift: new Spring(animateLift && !reducedMotion() ? 0 : 1, 0.62, 0.42),
+    lift: new Spring(animateLift && !reducedMotion() ? 0 : 1, 1, 0.4),
   }
   setAnchor(g, a)
   if (animateLift && !reducedMotion()) { g.lift.to(1); kick() }
@@ -357,13 +366,26 @@ function under(g: Ghost): Place | null {
   return p
 }
 
-/** Glide a ghost to a target (presets). Critically damped, slow response; interruptible by grabbing it. */
+/**
+ * Travel a ghost to a destination. The springs run on SCREEN pixels, not longitude/latitude: on Mercator a
+ * degree of latitude is worth wildly different pixel counts at 72°N and at 6°N, so a spring in degrees looks
+ * like it rockets away and then crawls. Independent x and y springs, critically damped, and the target is
+ * re-projected every frame so a camera move happening at the same time is absorbed without a seam.
+ * Interruptible: grabbing the shape clears `glide` and the drag takes over from the live position.
+ */
 function glideTo(g: Ghost, to: LonLat): Promise<void> {
   if (reducedMotion()) { g.sx.jump(to[0]); g.sy.jump(to[1]); setAnchor(g, to); requestDraw(); pushHash(); return Promise.resolve() }
-  g.sx.set(1, 1.1); g.sy.set(1, 1.1)
-  let lon = to[0]; const cur = g.sx.x           // take the short way round
-  while (lon - cur > 180) lon -= 360; while (lon - cur < -180) lon += 360
-  g.sx.to(lon); g.sy.to(to[1]); kick()
+  const from = projection(g.anchor), dst = projection(to)
+  if (from && dst) {
+    g.px = new Spring(from[0], 1, 0.55); g.py = new Spring(from[1], 1, 0.55)
+    g.px.to(dst[0]); g.py.to(dst[1]); g.glide = to
+  } else { // destination is off the projected sphere: fall back to degrees
+    g.sx.set(1, 0.7); g.sy.set(1, 0.7)
+    let lon = to[0]; const cur = g.sx.x           // take the short way round
+    while (lon - cur > 180) lon -= 360; while (lon - cur < -180) lon += 360
+    g.sx.to(lon); g.sy.to(to[1])
+  }
+  kick()
   return new Promise(res => { g.settled = res })
 }
 
@@ -375,8 +397,22 @@ function tick(t: number) {
   const n = Math.max(1, Math.ceil(dt / (1 / 60))), h = dt / n // sub-step so a slow frame still advances real time
   let busy = false
   for (const g of ghosts) {
+    for (let i = 0; i < n; i++) g.lift.step(h, 2e-3)
+    if (g.glide && g.px && g.py) { // travelling: springs live in screen pixels
+      const t = projection(g.glide)
+      if (t && (Math.abs(t[0] - g.px.target) > 0.5 || Math.abs(t[1] - g.py.target) > 0.5)) { g.px.to(t[0]); g.py.to(t[1]) }
+      for (let i = 0; i < n; i++) { g.px.step(h, 0.15); g.py.step(h, 0.15) }
+      const ll = invert([g.px.x, g.py.x])
+      if (ll) setAnchor(g, ll)
+      if (g.px.done && g.py.done) {
+        g.glide = undefined
+        g.sx.jump(g.anchor[0]); g.sy.jump(g.anchor[1])
+        pushHash(); g.settled?.(); g.settled = undefined
+      } else busy = true
+      continue
+    }
     const moving = !g.sx.done || !g.sy.done
-    for (let i = 0; i < n; i++) { g.sx.step(h, 5e-3); g.sy.step(h, 5e-3); g.lift.step(h, 2e-3) }
+    for (let i = 0; i < n; i++) { g.sx.step(h, 5e-3); g.sy.step(h, 5e-3) }
     if (moving) {
       setAnchor(g, [g.sx.x, g.sy.x])
       if (g.sx.done && g.sy.done) { pushHash(); g.settled?.(); g.settled = undefined }
@@ -610,8 +646,11 @@ function draw() {
 }
 
 // Labels are built from Natural Earth names (static, shipped with the site) and always pass through esc().
+// Nodes are reused and moved with a compositor-friendly transform; their width is measured only when the text
+// changes, so a travelling shape costs no layout per frame.
+const labelNodes = new Map<number, { el: HTMLElement; html: string; w: number }>()
 function drawLabels() {
-  const items: string[] = []
+  const live = new Set<number>()
   for (const g of ghosts) {
     const xy = projection(g.anchor)
     if (!xy) continue
@@ -626,14 +665,28 @@ function drawLabels() {
     const ratio = u ? fmtRatio(g.place.areaKm2, u.areaKm2) : null
     const over = u ? `<span class="r"><strong>${ratio!.short}</strong> ${ratio!.short.endsWith('%') ? 'of' : 'the size of'} ${esc(u.name)}</span>` : `<span class="r">${fmtKm2(g.place.areaKm2)}</span>`
     const def = g.place.level === 'city' ? ` <span class="r">· ${esc(g.place.def)}</span>` : ''
-    items.push(`<div class="label" style="left:${x}px;top:${y}px;--c:${g.color}" data-key="${g.key}"><b>${esc(g.place.name)}</b>${def} · ${over}</div>`)
+    const html = `<b>${esc(g.place.name)}</b>${def} · ${over}`
+    let node = labelNodes.get(g.key)
+    if (!node) {
+      const el = document.createElement('div')
+      el.className = 'label'; el.dataset.key = String(g.key)
+      labelsEl.appendChild(el)
+      node = { el, html: '', w: 0 }
+      labelNodes.set(g.key, node)
+    }
+    if (node.html !== html) { // the only branch that touches the DOM or forces layout
+      node.el.innerHTML = html
+      node.html = html
+      node.w = node.el.offsetWidth
+    }
+    node.el.style.setProperty('--c', g.color)
+    node.el.style.zIndex = String(ghosts.indexOf(g) + 1) // overlapping pills stack in the same order as their shapes
+    const min = node.w / 2 + 6, max = width - node.w / 2 - 6 // keep the pill on screen
+    const cx = Math.max(min, Math.min(max, x))
+    node.el.style.transform = `translate3d(${cx.toFixed(1)}px, ${y.toFixed(1)}px, 0) translate(-50%, -100%)`
+    live.add(g.key)
   }
-  labelsEl.innerHTML = items.join('')
-  for (const el of labelsEl.querySelectorAll<HTMLElement>('.label')) { // keep the pill on screen
-    const w = el.offsetWidth, x = parseFloat(el.style.left)
-    const min = w / 2 + 6, max = width - w / 2 - 6
-    if (x < min) el.style.left = min + 'px'; else if (x > max) el.style.left = max + 'px'
-  }
+  for (const [key, node] of labelNodes) if (!live.has(key)) { node.el.remove(); labelNodes.delete(key) }
   if (selected) { const before = lastCompareKey; fillCompare(selected); if (lastCompareKey !== before) syncSheetHeight() }
 }
 const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
@@ -728,9 +781,10 @@ canvas.addEventListener('pointerdown', (e) => {
     return
   }
   // grab: start from the live value, cancel any motion in flight
+  g.glide = undefined // interrupt any travel and continue from where it is right now
   g.sx.jump(g.anchor[0]); g.sy.jump(g.anchor[1]); g.settled?.(); g.settled = undefined
   drag = { g, startGeo: geo, startAnchor: g.anchor.slice() as LonLat, raw: g.anchor.slice() as LonLat, moved: false }
-  if (!reducedMotion()) { g.lift.set(0.8, 0.3); g.lift.to(1.35); kick() }
+  if (!reducedMotion()) { g.lift.set(1, 0.3); g.lift.to(1.35); kick() }
   canvas.setPointerCapture(e.pointerId); canvas.classList.add('dragging')
   ghosts = [...ghosts.filter(x => x !== g), g] // bring to front
   e.stopPropagation()
@@ -928,28 +982,17 @@ presetsEl.addEventListener('click', async (e) => {
     if (level === 'city') await withTimeout(Promise.all([loadCity(src), loadCity(dst)]), 6000)
     if (!live()) return
     setLevel(level)
-    // camera: cities frame the destination; countries/continents frame the pair — and only if they are not already both in view
-    const bothVisible = onScreenPt(screenPos(src.label), 20) && onScreenPt(screenPos(dst.label), 20)
-    const target = level === 'city'
-      ? (bothVisible && transform.k >= CITY_BORDERS_FROM ? transform : viewFor(dst, 0.3))
-      : (bothVisible ? transform : viewForPair(src, dst))
-    const needMove = Math.abs(target.k - transform.k) > 0.01 || Math.abs(target.x - transform.x) > 1 || Math.abs(target.y - transform.y) > 1
-    const srcOnScreen = onScreenPt(screenPos(src.label))
-    let g: Ghost
-    if (srcOnScreen) {
-      // lift where it lives, then travel and move the camera together so shape and view arrive at once
-      g = addGhost(src, src.label)
-      await new Promise(r => setTimeout(r, reducedMotion() ? 0 : 220))
-      if (!live()) return
-      await withTimeout(Promise.all([needMove ? animateZoom(target, 900) : Promise.resolve(), glideTo(g, dst.label)]), 4000)
-    } else {
-      // the shape lives off screen: bring the camera to the destination and drop the shape onto it as it arrives
-      const cam = needMove ? animateZoom(target, 800) : Promise.resolve()
-      await new Promise(r => setTimeout(r, reducedMotion() ? 0 : 350))
-      if (!live()) return
-      g = addGhost(src, dst.label)
-      await withTimeout(cam, 3000)
-    }
+    // One story every time: frame both places, lift the shape where it lives, then fly it to the destination.
+    // (Greenland's label point sits under the header at the default view, so "is the source on screen?" is
+    // decided after the camera has framed the pair — never by skipping the flight.)
+    const camera = level === 'city' ? viewFor(dst, 0.3) : viewForPair(src, dst)
+    const framed = onScreenPt(screenPos(src.label), 24) && onScreenPt(screenPos(dst.label), 24)
+    const needMove = !framed || (level === 'city' && transform.k < CITY_BORDERS_FROM)
+    if (needMove) { await withTimeout(animateZoom(camera, 700), 2000); if (!live()) return }
+    const g = addGhost(src, src.label)
+    await new Promise(r => setTimeout(r, reducedMotion() ? 0 : 200)) // a beat, so the origin registers
+    if (!live()) return
+    await withTimeout(glideTo(g, dst.label), 4000)
     if (live() && ghosts.includes(g)) showCompare(g)
   } catch { toast('Could not load that comparison') }
   finally { if (live()) b.classList.remove('busy') }

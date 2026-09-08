@@ -106,7 +106,9 @@ async function zoomIn(page, mobile, cx, cy, factor) {
   if (mobile) await pinch(page, cx, cy, 40, 40 * factor)
   else await wheelZoom(page, cx, cy, Math.ceil(Math.log2(factor) / 0.2))
 }
-const labels = (page) => qa(page, '#labels .label', els => els.map(e => ({ text: e.textContent.replace(/\s+/g, ' ').trim(), left: parseFloat(e.style.left), top: parseFloat(e.style.top) })))
+// positions come from the rendered box, so the harness does not care whether the app positions with
+// left/top or a transform
+const labels = (page) => qa(page, '#labels .label', els => els.map(e => { const r = e.getBoundingClientRect(); return { text: e.textContent.replace(/\s+/g, ' ').trim(), left: Math.round(r.left + r.width / 2), top: Math.round(r.bottom) } }))
 async function waitForLabel(page, needle, timeout = 4000) {
   const t0 = Date.now()
   while (Date.now() - t0 < timeout) {
@@ -475,7 +477,8 @@ async function runContext(browser, ctxName, ctxOpts, mobile) {
     const why = await q1(p2, '#why', e => !e.hidden)
     r.evidence.push(`source labels: ${JSON.stringify(src)}`)
     r.evidence.push(`opened in fresh context: ${JSON.stringify(dst)}; why modal shown: ${why}; compare visible: ${await q1(p2, '#compare', e => !e.hidden)}`)
-    if (why || dst.length !== src.length || !src.every((t, i) => t === dst[i])) ok = false
+    const sameSet = dst.length === src.length && [...src].sort().every((t, i) => t === [...dst].sort()[i]) // labels are a set; DOM order is not meaningful
+    if (why || !sameSet) ok = false
     r.evidence.push(await shot(p2, ctxName, '09-shared-link'))
     await c2.close(); await page.close()
     return ok
