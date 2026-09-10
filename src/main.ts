@@ -64,6 +64,20 @@ let frame = 0
 let zoomBehavior: ZoomBehavior<HTMLCanvasElement, unknown>
 let suppressHash = false
 
+/**
+ * Analytics. Records what people do with the map, never who they are: place names and control names only.
+ * Silently does nothing when the visitor blocks trackers, and never reports from a development machine.
+ */
+type Gtag = (cmd: 'event', name: string, params?: Record<string, unknown>) => void
+const LOCAL = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)
+const trackLog: { name: string; params: Record<string, unknown> }[] = [] // dev only, so tests can prove wiring
+function track(name: string, params: Record<string, unknown> = {}) {
+  if (import.meta.env.DEV) trackLog.push({ name, params })
+  if (LOCAL) return
+  try { (window as unknown as { gtag?: Gtag }).gtag?.('event', name, params) } catch { /* blocked */ }
+}
+type LiftSource = 'tap' | 'search' | 'preset' | 'link'
+
 const graticule = geoGraticule10()
 const sphere = { type: 'Sphere' } as const
 
@@ -84,6 +98,7 @@ function setTheme(t: 'light' | 'dark') {
   document.documentElement.classList.remove('system-light')
   try { localStorage.setItem('theme', t) } catch { /* private mode */ }
   $('#theme').textContent = t === 'light' ? '☾' : '☀'
+  track('switch_theme', { theme: t })
   readPalette(); requestDraw()
 }
 const maxLat = () => projName === 'mercator' ? 82 : 89
@@ -224,7 +239,7 @@ function cityAtPixel(xy: [number, number], radius = CITY_TAP_PX): Place | null {
 // ------------------------------------------------------------------ ghosts
 /** Lift a place; a city fetches its boundary first. */
 let liftSeq = 0
-async function liftPlace(place: Place, anchor?: LonLat, animateLift = true): Promise<Ghost | null> {
+async function liftPlace(place: Place, anchor?: LonLat, animateLift = true, source: LiftSource = 'tap'): Promise<Ghost | null> {
   const seq = ++liftSeq
   if (!place.feature) {
     hintEl.textContent = `Loading ${place.name}…`; hintEl.classList.remove('off')
@@ -233,7 +248,7 @@ async function liftPlace(place: Place, anchor?: LonLat, animateLift = true): Pro
     if (seq !== liftSeq) return null // the user has moved on
   }
   hintEl.classList.add('off')
-  const g = addGhost(place, anchor, animateLift)
+  const g = addGhost(place, anchor, animateLift, source)
   zoomToSee(g)
   return g
 }
@@ -332,7 +347,7 @@ function bodySizePx(place: Place): number {
   const pxPerKm = (2 * Math.PI * baseScale) / (40075 * (projName === 'mercator' ? Math.cos(lat) : 1))
   return sideKm * pxPerKm
 }
-function addGhost(place: Place, anchor?: LonLat, animateLift = true): Ghost {
+function addGhost(place: Place, anchor?: LonLat, animateLift = true, source: LiftSource = 'tap'): Ghost {
   const existing = ghosts.find(g => g.place.id === place.id)
   if (existing && !anchor) { selected = existing; showCompare(existing); requestDraw(); return existing }
   if (ghosts.length >= MAX_GHOSTS) { removeGhost(ghosts[0]); toast('Three at a time — oldest removed') }
@@ -348,6 +363,7 @@ function addGhost(place: Place, anchor?: LonLat, animateLift = true): Ghost {
   if (animateLift && !reducedMotion()) { g.lift.to(1); kick() }
   ghosts.push(g)
   hintEl.textContent = 'Drag it anywhere · tap to compare'
+  if (source !== 'link') track('lift_shape', { place: place.name, level: place.level, source })
   $('#clear').hidden = false
   requestDraw(); pushHash()
   return g
@@ -762,6 +778,17 @@ function drawLabels() {
 const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
 
 // ------------------------------------------------------------------ compare sheet
+let lastTracked = ''
+/** The comparison a visitor ended up making — the single most interesting thing to know. */
+function trackCompare(g: Ghost) {
+  const u = under(g)
+  if (!u) return
+  const key = g.place.id + '>' + u.id
+  if (key === lastTracked) return
+  lastTracked = key
+  const r = fmtRatio(g.place.areaKm2, u.areaKm2)
+  track('compare', { place: g.place.name, against: u.name, level: g.place.level, ratio: r.short })
+}
 function showCompare(g: Ghost) { selected = g; compareEl.hidden = false; lastCompareKey = ''; fillCompare(g); syncSheetHeight() }
 function hideCompare() { compareEl.hidden = true; selected = null; syncSheetHeight() }
 function syncSheetHeight() { app.style.setProperty('--sheet-h', compareEl.hidden ? '0px' : compareEl.offsetHeight + 10 + 'px') }
@@ -915,6 +942,7 @@ function endDrag(e: PointerEvent) {
     g.sx.to(d.raw[0]); g.sy.to(targetLat); kick()
   } else pushHash()
   if (selected === g) fillCompare(g)
+  trackCompare(g)
   requestDraw()
 }
 canvas.addEventListener('pointerup', endDrag)
@@ -953,6 +981,7 @@ function setProjection(p: ProjName, animate = true) {
   projName = p
   document.querySelectorAll<HTMLButtonElement>('[data-proj]').forEach(x => { const on = x.dataset.proj === p; x.classList.toggle('on', on); x.setAttribute('aria-checked', String(on)) })
   setHook(p)
+  track('switch_projection', { projection: p })
   if (!animate || reducedMotion() || !world) {
     transform = zoomIdentity; select(canvas).call(zoomBehavior.transform, zoomIdentity)
     projection = makeProjection()
@@ -1055,6 +1084,7 @@ presetsEl.addEventListener('click', async (e) => {
   const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-preset]'); if (!b) return
   const p = PRESETS[presetsLevel ?? currentLevel()][Number(b.dataset.preset)]; if (!p) return
   const src = world.byId.get(p.src)!, dst = world.byId.get(p.dst)!
+  track('use_preset', { preset: p.label, level: presetsLevel ?? currentLevel() })
   const seq = ++presetSeq // a newer click cancels this run at the next step
   const live = () => seq === presetSeq
   presetsEl.querySelectorAll('.busy').forEach(x => x.classList.remove('busy')); b.classList.add('busy')
@@ -1071,11 +1101,11 @@ presetsEl.addEventListener('click', async (e) => {
     const framed = onScreenPt(screenPos(src.label), 24) && onScreenPt(screenPos(dst.label), 24)
     const needMove = !framed || (level === 'city' && transform.k < CITY_BORDERS_FROM)
     if (needMove) { await withTimeout(animateZoom(camera, 700), 2000); if (!live()) return }
-    const g = addGhost(src, src.label)
+    const g = addGhost(src, src.label, true, 'preset')
     await new Promise(r => setTimeout(r, reducedMotion() ? 0 : 200)) // a beat, so the origin registers
     if (!live()) return
     await withTimeout(glideTo(g, dst.label), 4000)
-    if (live() && ghosts.includes(g)) showCompare(g)
+    if (live() && ghosts.includes(g)) { showCompare(g); trackCompare(g) }
   } catch { toast('Could not load that comparison') }
   finally { if (live()) b.classList.remove('busy') }
 })
@@ -1104,7 +1134,7 @@ function pickResult(i: number) {
   const p = results[i]; if (!p) return
   resultsEl.hidden = true; searchEl.value = ''; searchEl.blur()
   setLevel(p.level)
-  void liftPlace(p).then(g => { if (g) showCompare(g) })
+  void liftPlace(p, undefined, true, 'search').then(g => { if (g) showCompare(g) })
 }
 
 // share
@@ -1115,6 +1145,7 @@ $('#share').addEventListener('click', async () => {
   const u = new URL(location.href)
   for (const k of [...u.searchParams.keys()]) if (/^(utm_|fbclid|gclid|li_fat_id|mc_)/i.test(k)) u.searchParams.delete(k)
   const url = u.toString()
+  track('copy_link', { shapes: ghosts.length, projection: projName })
   try { await navigator.clipboard.writeText(url); toast('Link copied — it opens on this exact view') }
   catch { prompt('Copy this link', url) }
 })
@@ -1128,18 +1159,18 @@ matchMedia('(prefers-color-scheme: light)').addEventListener('change', (e) => {
 
 // why: a modal, shown on the first visit and on demand
 const whyEl = $('#why')
-function openWhy() { whyEl.hidden = false; $('#why-btn').setAttribute('aria-expanded', 'true'); $('#why-close').focus() }
+function openWhy(trigger: 'first_visit' | 'button' = 'button') { track('open_why', { trigger }); whyEl.hidden = false; $('#why-btn').setAttribute('aria-expanded', 'true'); $('#why-close').focus() }
 function closeWhy() { whyEl.hidden = true; $('#why-btn').setAttribute('aria-expanded', 'false'); try { localStorage.setItem('seenWhy', '1') } catch { /* private mode */ } }
-$('#why-btn').addEventListener('click', openWhy)
+$('#why-btn').addEventListener('click', () => openWhy('button'))
 $('#why-close').addEventListener('click', closeWhy)
 $('#why-skip').addEventListener('click', closeWhy)
-$('#why-try').addEventListener('click', () => { closeWhy(); setLevel('continent'); renderPresets(); presetsEl.querySelector<HTMLButtonElement>('[data-preset="0"]')?.click() })
+$('#why-try').addEventListener('click', () => { track('why_show_me'); closeWhy(); setLevel('continent'); renderPresets(); presetsEl.querySelector<HTMLButtonElement>('[data-preset="0"]')?.click() })
 whyEl.addEventListener('click', (e) => { if (e.target === whyEl) closeWhy() })
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !whyEl.hidden) closeWhy() })
 function maybeShowWhy() {
   let seen = false
   try { seen = localStorage.getItem('seenWhy') === '1' } catch { /* noop */ }
-  if (!seen && !ghosts.length) setTimeout(openWhy, 500) // a shared link opens on its comparison, not the explainer
+  if (!seen && !ghosts.length) setTimeout(() => openWhy('first_visit'), 500) // a shared link opens on its comparison, not the explainer
 }
 
 let toastTimer = 0
@@ -1168,7 +1199,7 @@ function readHash() {
     const m = tok.match(/^([^@]+)@(-?[\d.]+),(-?[\d.]+)$/); if (!m) continue
     const place = world.byId.get(m[1]); if (!place) continue
     const anchor: LonLat = [Number(m[2]), Number(m[3])]
-    if (place.feature) addGhost(place, anchor, false)
+    if (place.feature) addGhost(place, anchor, false, 'link')
     else pending.push(liftPlace(place, anchor, false))
   }
   suppressHash = false
@@ -1195,5 +1226,5 @@ async function boot() {
   requestDraw()
 }
 // debug hook, dev only
-if (import.meta.env.DEV) (window as unknown as { __tsm: unknown }).__tsm = { project: (ll: LonLat) => projection(ll), get pal() { return pal }, get ghosts() { return ghosts }, stats, get transform() { return transform }, get baseT() { return baseT }, get baseKey() { return baseKey }, baseKeyNow, get baseTimer() { return baseTimer }, renderBase, draw, get base() { return base }, get visibleCities() { return visibleCities.map(v => ({ n: v.c.name, loaded: !!v.c.feature })) }, get citiesLoaded() { return citiesLoaded }, setProjection, get morph() { return morphDebug }, viewForPair: (a: string, b: string) => { const t = viewForPair(world.byId.get(a)!, world.byId.get(b)!); select(canvas).call(zoomBehavior.transform, t); return [t.k, t.x, t.y] }, screenPos, get world() { return world }, contains, ghostAtPoint, ghostAtPx, invert, lift: (p: Place) => addGhost(p), get morphing() { return morphing }, get lastZoom() { return lastZoom }, setView: (k: number, lon: number, lat: number) => { const b = projection; applyTransform(); const base = (() => { const t = transform; const p = b([lon, lat])!; return [(p[0] - t.x) / t.k, (p[1] - t.y) / t.k] })(); const visH = height - insetTop - insetBottom; select(canvas).call(zoomBehavior.transform, zoomIdentity.translate(width / 2 - k * base[0], insetTop + visH / 2 - k * base[1]).scale(k)) } }
+if (import.meta.env.DEV) (window as unknown as { __tsm: unknown }).__tsm = { project: (ll: LonLat) => projection(ll), get pal() { return pal }, get ghosts() { return ghosts }, stats, get transform() { return transform }, get baseT() { return baseT }, get baseKey() { return baseKey }, baseKeyNow, get baseTimer() { return baseTimer }, renderBase, draw, get base() { return base }, get visibleCities() { return visibleCities.map(v => ({ n: v.c.name, loaded: !!v.c.feature })) }, get citiesLoaded() { return citiesLoaded }, setProjection, get morph() { return morphDebug }, viewForPair: (a: string, b: string) => { const t = viewForPair(world.byId.get(a)!, world.byId.get(b)!); select(canvas).call(zoomBehavior.transform, t); return [t.k, t.x, t.y] }, screenPos, get world() { return world }, contains, ghostAtPoint, ghostAtPx, invert, lift: (p: Place) => addGhost(p), get morphing() { return morphing }, get lastZoom() { return lastZoom }, get trackLog() { return trackLog }, setView: (k: number, lon: number, lat: number) => { const b = projection; applyTransform(); const base = (() => { const t = transform; const p = b([lon, lat])!; return [(p[0] - t.x) / t.k, (p[1] - t.y) / t.k] })(); const visH = height - insetTop - insetBottom; select(canvas).call(zoomBehavior.transform, zoomIdentity.translate(width / 2 - k * base[0], insetTop + visH / 2 - k * base[1]).scale(k)) } }
 boot().catch(err => { hintEl.textContent = 'Could not load map data'; console.error(err) })
