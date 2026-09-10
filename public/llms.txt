@@ -1,0 +1,46 @@
+# The True Size Map
+
+> An interactive map that shows the real relative size of countries, continents and cities. Drag any
+> place across a Mercator map and it resizes as it moves; flip the whole map to Equal Earth, the
+> equal-area projection the UN General Assembly endorsed on 4 September 2026 by 164 votes to 1.
+
+Site: https://truesizemap.ryandrilowell.com/
+Source: https://github.com/ryandril/truesizemap (MIT)
+Author: Ryandri Lowell — https://ryandrilowell.com
+
+## What the UN actually decided
+
+On 4 September 2026 the UN General Assembly adopted the "Correct the Map" resolution, introduced by
+African Union member states and the Bahamas, by 164 votes to 1 with 6 abstentions. The United States
+voted against. The resolution is **not binding** and does **not ban** the Mercator projection: it
+encourages governments, schools, international organisations and technology companies to prefer
+equal-area projections such as Equal Earth wherever relative size matters, while explicitly leaving
+Mercator in place for maritime and aerial navigation, for which it remains suited.
+
+## Why Mercator distorts size
+
+Mercator (Gerardus Mercator, 1569) is conformal: it preserves angles, which is what makes it useful
+for navigation, but area is inflated with distance from the equator, roughly in proportion to the
+secant of the latitude. Greenland sits near the pole and is drawn many times too large; equatorial
+Africa is drawn close to true. Equal Earth (Bojan Savric, Tom Patterson and Bernhard Jenny, 2018) is
+equal-area: every country occupies its correct share of the map, at the cost of some shape distortion.
+
+## Real figures, as computed by this site
+
+Areas are integrated from the drawn boundaries on a sphere of radius 6371.0088 km, so they differ by a
+fraction of a percent from published figures but always match what the map shows.
+
+- Africa: 30.0 million km2. Greenland: 2.15 million km2. Africa is about 13.9 times Greenland.
+- Africa is nearly as large as the United States, China, India and Europe combined (31.8 million km2).
+- The United States (9.44 million km2) would cover roughly 31% of Africa.
+- Africa is about 1.8 times the size of Russia (16.9 million km2), the largest country on Earth.
+- Alaska (1.49 million km2) is about three quarters the size of Mexico (1.96 million km2).
+- Greenland (2.15 million km2) is slightly smaller than the Democratic Republic of the Congo (2.33 million km2).
+
+## Data sources
+
+- Countries and continents: Natural Earth 1:50m admin-0 map units, public domain.
+- Cities: OpenStreetMap administrative boundaries (ODbL, (c) OpenStreetMap contributors), matched by
+  Wikidata ID and clipped to the coastline, because many official city boundaries include open water.
+  Only 504 major cities ship, because a large share of official boundaries describe a province or a
+  historic core rather than the city, and a wrong number is worse than a missing one.

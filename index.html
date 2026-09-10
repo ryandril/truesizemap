@@ -4,14 +4,23 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
   <meta name="theme-color" content="#0B0D12" />
-  <title>The True Size Map — drag a country, see its real size</title>
-  <meta name="description" content="On 4 Sep 2026 the UN voted 164–1 to 'Correct the Map'. Lift any country or continent off a Mercator map, drag it anywhere, and flip to the Equal Earth projection the UN endorsed." />
+  <title>The True Size Map — compare the real size of any country</title>
+  <meta name="description" content="Drag any country, continent or city across a Mercator map and watch it resize to its true area, then flip to Equal Earth. Africa is 13.9 times the size of Greenland." />
+  <link rel="canonical" href="https://truesizemap.ryandrilowell.com/" />
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
+  <meta name="author" content="Ryandri Lowell" />
   <meta property="og:title" content="The True Size Map" />
   <meta property="og:description" content="Drag any country or continent around a Mercator map and watch it resize. Flip to Equal Earth, the projection the UN just endorsed 164–1." />
   <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="The True Size Map" />
+  <meta property="og:locale" content="en" />
   <meta property="og:url" content="https://truesizemap.ryandrilowell.com/" />
   <meta property="og:image" content="https://truesizemap.ryandrilowell.com/og-card.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="Greenland laid over Africa on a Mercator map, labelled 7.2% of Africa." />
   <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:image" content="https://truesizemap.ryandrilowell.com/og-card.png" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%230B0D12' stroke='%23E8A33D' stroke-width='2'/%3E%3Cellipse cx='16' cy='16' rx='6' ry='14' fill='none' stroke='%23E8A33D' stroke-width='1.5'/%3E%3Cline x1='2' y1='16' x2='30' y2='16' stroke='%23E8A33D' stroke-width='1.5'/%3E%3C/svg%3E" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
@@ -19,6 +28,71 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="True Size" />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebApplication",
+        "@id": "https://truesizemap.ryandrilowell.com/#app",
+        "name": "The True Size Map",
+        "url": "https://truesizemap.ryandrilowell.com/",
+        "description": "Drag any country, continent or city across a Mercator map and watch it resize to its true relative area, then flip the map to Equal Earth, the equal-area projection the UN General Assembly endorsed on 4 September 2026 by 164 votes to 1.",
+        "applicationCategory": "EducationalApplication",
+        "operatingSystem": "Any web browser",
+        "browserRequirements": "Requires JavaScript",
+        "isAccessibleForFree": true,
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "license": "https://opensource.org/licenses/MIT",
+        "codeRepository": "https://github.com/ryandril/truesizemap",
+        "inLanguage": "en",
+        "author": { "@type": "Person", "name": "Ryandri Lowell", "url": "https://ryandrilowell.com" },
+        "about": [
+          { "@type": "Thing", "name": "Map projection", "sameAs": "https://en.wikipedia.org/wiki/Map_projection" },
+          { "@type": "Thing", "name": "Equal Earth projection", "sameAs": "https://en.wikipedia.org/wiki/Equal_Earth_projection" },
+          { "@type": "Thing", "name": "Mercator projection", "sameAs": "https://en.wikipedia.org/wiki/Mercator_projection" }
+        ],
+        "featureList": [
+          "Drag 238 countries and territories, 7 continents and 504 major cities across the map",
+          "Shapes resize as they move, showing true relative area at any latitude",
+          "Animated switch between the Mercator and Equal Earth projections",
+          "Share a link that opens on the exact comparison you were looking at"
+        ]
+      },
+      {
+        "@type": "FAQPage",
+        "@id": "https://truesizemap.ryandrilowell.com/#faq",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "Is Greenland as big as Africa?",
+            "acceptedAnswer": { "@type": "Answer", "text": "No. Africa covers about 30.0 million square kilometres and Greenland about 2.15 million, so Africa is roughly 13.9 times the size of Greenland. They look comparable on a Mercator map because Mercator inflates area with distance from the equator, and Greenland lies close to the North Pole." }
+          },
+          {
+            "@type": "Question",
+            "name": "Which map projection did the United Nations endorse in 2026?",
+            "acceptedAnswer": { "@type": "Answer", "text": "Equal Earth. On 4 September 2026 the UN General Assembly adopted the Correct the Map resolution by 164 votes to 1 with 6 abstentions, introduced by African Union member states and the Bahamas. It is not binding and does not ban Mercator: it encourages equal-area projections such as Equal Earth wherever relative size matters, while leaving Mercator in place for maritime and aerial navigation." }
+          },
+          {
+            "@type": "Question",
+            "name": "Why does the Mercator projection distort the size of countries?",
+            "acceptedAnswer": { "@type": "Answer", "text": "Mercator, published by Gerardus Mercator in 1569, is conformal: it preserves angles, which is what makes it useful for navigation. The cost is that area is stretched with distance from the equator, roughly in proportion to the secant of the latitude. Land near the poles is drawn far too large, and land near the equator close to true." }
+          },
+          {
+            "@type": "Question",
+            "name": "What is the Equal Earth projection?",
+            "acceptedAnswer": { "@type": "Answer", "text": "Equal Earth is an equal-area pseudocylindrical world projection published in 2018 by Bojan Savric, Tom Patterson and Bernhard Jenny. Every country occupies its correct share of the map, so relative sizes are true, at the cost of some distortion of shape." }
+          },
+          {
+            "@type": "Question",
+            "name": "How much of Africa would the United States cover?",
+            "acceptedAnswer": { "@type": "Answer", "text": "About 31 percent. The United States covers roughly 9.44 million square kilometres against Africa's 30.0 million. Africa is nearly as large as the United States, China, India and Europe combined, which come to about 31.8 million square kilometres." }
+          }
+        ]
+      }
+    ]
+  }
+  </script>
   <link rel="stylesheet" href="/src/style.css" />
   <script>
     (function () {
@@ -66,7 +140,13 @@
       <div class="why-card sheet">
         <button class="close" id="why-close" aria-label="Close">×</button>
         <h2 id="why-title">The map you grew up with is wrong about size</h2>
-        <p>On <strong>4 September 2026</strong> the UN General Assembly voted 164 to 1 to “Correct the Map”. It asks schools, governments and tech companies to use <strong>Equal Earth</strong>, a projection that draws every country at its true relative area, instead of <strong>Mercator</strong>, the 1569 navigation chart that stretches land near the poles. On Mercator, Greenland looks the size of Africa. Africa is 14 times bigger.</p>
+        <p>On <strong>4 September 2026</strong> the UN General Assembly voted 164 to 1 to “Correct the Map”. It asks schools, governments and tech companies to use <strong>Equal Earth</strong>, a projection that draws every country at its true relative area, instead of <strong>Mercator</strong>, the 1569 navigation chart that stretches land near the poles. The vote is not binding, and Mercator stays where it belongs, on charts for navigation.</p>
+        <ul class="why-facts">
+          <li><strong>Africa</strong> is <strong>13.9×</strong> the size of Greenland, and nearly as large as the United States, China, India and Europe put together.</li>
+          <li>The <strong>United States</strong> would cover about <strong>31%</strong> of Africa.</li>
+          <li><strong>Alaska</strong> is roughly three quarters the size of <strong>Mexico</strong>, not a third of the continent.</li>
+          <li><strong>Greenland</strong> is slightly smaller than the <strong>Democratic Republic of the Congo</strong>.</li>
+        </ul>
         <p><strong>Try it:</strong> tap any country to lift a copy. Drag it anywhere and it re-sizes to what it would look like there. Zoom in for cities. Then flip to Equal Earth and watch the distortion vanish.</p>
         <div class="why-actions">
           <button class="btn primary" id="why-try">Show me: Greenland → Africa</button>

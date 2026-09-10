@@ -1,0 +1,9 @@
+# The True Size Map — https://truesizemap.ryandrilowell.com
+# Everything here is public and free to index, including by AI answer engines.
+User-agent: *
+Allow: /
+
+# Per-city boundary files are data, not pages; there is nothing to read in them.
+Disallow: /cities/
+
+Sitemap: https://truesizemap.ryandrilowell.com/sitemap.xml
